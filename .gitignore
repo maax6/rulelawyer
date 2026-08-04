@@ -1,0 +1,41 @@
+# ---------------------------------------------------------------------------
+# Contenu tiers : ce dépôt ne contient AUCUN livre de règles.
+# Ces règles passent avant tout le reste, volontairement.
+# ---------------------------------------------------------------------------
+*.pdf
+*.epub
+*.mobi
+*.cbz
+*.cbr
+data/
+books/
+
+# Sauf les fixtures explicitement redistribuables (OGL / Creative Commons),
+# documentées dans fixtures/SOURCES.md.
+!fixtures/**/*.pdf
+
+# Artefacts d'ingestion : dérivés d'une œuvre protégée, donc jamais partagés.
+*.jsonl
+chunks/
+qdrant_storage/
+.cache/
+out/
+reports/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+uv.lock.bak
+
+# OS / éditeurs
+.DS_Store
+.idea/
+.vscode/

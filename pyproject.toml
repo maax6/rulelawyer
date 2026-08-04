@@ -1,0 +1,104 @@
+[project]
+name = "rulelawyer"
+version = "0.1.0"
+description = "Assistant de règles pour JDR papier : indexe VOTRE PDF, répond en citant les pages."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12,<3.14"
+authors = [{ name = "rulelawyer contributors" }]
+keywords = ["ttrpg", "rpg", "rag", "pdf", "retrieval"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment :: Role-Playing",
+]
+
+# Le noyau reste CPU-only et léger : quelqu'un qui n'a besoin que de la Route A
+# ne doit jamais télécharger torch. Toutes les licences ci-dessous sont
+# compatibles MIT (pdfplumber/pdfminer.six MIT, pypdf BSD-3).
+# PyMuPDF est volontairement absent : AGPL, incompatible avec le cadrage du projet.
+dependencies = [
+    "pdfplumber>=0.11",
+    "pypdf>=5.1",
+    "pydantic>=2.9",
+    "pyyaml>=6.0",
+    "rich>=13.9",
+    "typer>=0.15",
+]
+
+[project.optional-dependencies]
+# Index + retrieval hybride. Tire torch — d'où l'extra séparé.
+index = [
+    "qdrant-client>=1.12",
+    "FlagEmbedding>=1.3",
+    "torch>=2.4",
+    "bm25s>=0.2",
+]
+# Route C : parsing VLM des scans. GPU.
+vlm = [
+    "mineru>=2.5",
+    "torch>=2.4",
+]
+# Route D : retrieval visuel, expérimental.
+visual = [
+    "colpali-engine>=0.3",
+    "torch>=2.4",
+]
+agent = [
+    "anthropic>=0.40",
+]
+mcp = [
+    "mcp>=1.2",
+]
+
+[project.scripts]
+rulelawyer = "rulelawyer.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/m4ks/rulelawyer"
+Issues = "https://github.com/m4ks/rulelawyer/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-PyYAML",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rulelawyer"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# Le projet est commenté en français : guillemets typographiques, ×, ≥ et −
+# sont voulus, pas des homoglyphes accidentels.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src", "tests", "scripts"]
+
+[[tool.mypy.overrides]]
+module = ["pdfplumber.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    # Tests qui ont besoin du PDF de référence local, jamais versionné.
+    # Voir tests/conftest.py : RULELAWYER_FIXTURE_PDF.
+    "fixture_pdf: nécessite un PDF de référence local",
+]

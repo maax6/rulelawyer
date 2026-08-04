@@ -1,0 +1,3 @@
+#!/bin/sh
+# Activé par `git config core.hooksPath .githooks` (voir README, section Setup).
+exec python3 "$(git rev-parse --show-toplevel)/scripts/guard_repo.py" --staged

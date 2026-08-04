@@ -1,0 +1,14 @@
+# Qdrant, pour l'index. Le volume reste local : un index est un dérivé de votre
+# livre, il ne se partage pas plus que le PDF (voir .gitignore).
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: rulelawyer-qdrant
+    ports:
+      - "6333:6333"   # HTTP / dashboard
+      - "6334:6334"   # gRPC
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__ENABLE_TLS: "false"
+    restart: unless-stopped

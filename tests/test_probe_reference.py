@@ -63,6 +63,17 @@ def test_page_map_is_measured_not_guessed(reference_report: ProbeReport) -> None
     assert page_map.book_page(141) == 141
 
 
+def test_textual_toc_is_found(reference_report: ProbeReport) -> None:
+    """La TdM tient sur deux pages, en deux colonnes fusionnées à l'extraction.
+
+    Route A n'en a pas besoin — l'outline fait foi — mais c'est la source
+    primaire de la Route B : si elle est ratée ici, elle le sera sur les livres
+    qui n'ont que ça.
+    """
+    assert reference_report.toc.pages == [4, 5]
+    assert reference_report.toc.entry_count > 100
+
+
 def test_two_columns_dominant(reference_report: ProbeReport) -> None:
     assert reference_report.columns.dominant == 2
 

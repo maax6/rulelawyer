@@ -15,6 +15,7 @@ from rulelawyer.probe import (
     PageContent,
     detect_boilerplate,
     detect_page_map,
+    find_toc,
     measure_text_quality,
     normalize_line,
     shadow_char_filter,
@@ -123,6 +124,98 @@ def test_page_map_ignores_body_numbers() -> None:
     """Seules les zones d'en-tête et de pied comptent."""
     pages = [make_page(i, "Corporation", body=[f"{i + 1}"]) for i in range(20)]
     assert detect_page_map(pages).method is PageMapMethod.IDENTITY
+
+
+# --- Table des matières textuelle -------------------------------------------
+
+
+def toc_page(index: int, lines: list[str]) -> PageContent:
+    return PageContent(
+        index=index,
+        width=PAGE_W,
+        height=PAGE_H,
+        lines=[
+            Line(text=t, x0=50, x1=550, top=100.0 + 14 * i, bottom=112.0 + 14 * i)
+            for i, t in enumerate(lines)
+        ],
+        char_count=900,
+    )
+
+
+def test_find_toc_reads_a_two_column_merged_layout() -> None:
+    """L'extraction fusionne les deux colonnes d'une TdM en une seule ligne.
+
+    Exiger un motif de ligne entière « titre ... numéro » rate ce cas — et une
+    Route B privée de sa source primaire reconstruit une hiérarchie fausse.
+    """
+    merged = [
+        "Game Terms 7 How are Telepathics Possible? 72",
+        "Agents: What are they? 8 Using Telepathics 73",
+        "Agent Physiology 9 Description of Telepathic Skills 74",
+        "Character Creation 12 Character Advancement 77",
+        "Rolling Attributes 14 Rank and Rank Points 78",
+        "Choosing Skills 17 Improving Skills 80",
+    ]
+    pages = [toc_page(0, ["Corporation"]), toc_page(1, merged)]
+    pages += [toc_page(i, ["du texte courant sans numéro"]) for i in range(2, 100)]
+
+    report = find_toc(pages, boilerplate=set())
+    assert report.pages == [1]
+    assert report.entry_count >= 12
+
+
+def test_find_toc_reads_dot_leaders() -> None:
+    titles = [
+        "Création de personnage",
+        "Attributs et compétences",
+        "Résolution des actions",
+        "Combat rapproché",
+        "Combat à distance",
+        "Blessures et soins",
+        "Équipement standard",
+        "Armes et armures",
+        "Véhicules",
+        "Antagonistes",
+    ]
+    lines = [f"{t} .......... {(i + 1) * 7}" for i, t in enumerate(titles)]
+    pages = [toc_page(0, lines)] + [toc_page(i, ["texte"]) for i in range(1, 100)]
+    assert find_toc(pages, boilerplate=set()).pages == [0]
+
+
+def test_find_toc_is_not_fooled_by_an_equipment_table() -> None:
+    """« Fusil d'assaut 12 » ressemble à une entrée de TdM. Ça n'en est pas une."""
+    table = [
+        "Fusil d'assaut 12",
+        "Pistolet lourd 8",
+        "Lame monofilament 6",
+    ]
+    body = ["Le personnage dépense un point de destin pour relancer les dés."] * 8
+    pages = [toc_page(0, table + body)]
+    pages += [toc_page(i, ["texte courant"]) for i in range(1, 100)]
+    assert find_toc(pages, boilerplate=set()).pages == []
+
+
+def test_find_toc_ignores_boilerplate_lines() -> None:
+    """Le boilerplate ne doit ni compter comme entrée ni diluer la densité."""
+    titles = [
+        "Création de personnage",
+        "Attributs et compétences",
+        "Résolution des actions",
+        "Combat rapproché",
+        "Combat à distance",
+        "Blessures et soins",
+        "Équipement standard",
+        "Armes et armures",
+        "Véhicules",
+        "Antagonistes",
+    ]
+    lines = ["Corp Layout Page 4"] + [
+        f"{t} ..... {(i + 1) * 5}" for i, t in enumerate(titles)
+    ]
+    pages = [toc_page(0, lines)] + [toc_page(i, ["texte"]) for i in range(1, 100)]
+    report = find_toc(pages, boilerplate={normalize_line("Corp Layout Page 4")})
+    assert report.pages == [0]
+    assert all("Corp Layout" not in s for s in report.sample)
 
 
 # --- Qualité de la couche texte ---------------------------------------------

@@ -68,8 +68,16 @@ MAX_PAGE_NUMBER = 4000
 _DIGITS = re.compile(r"\d+")
 _WS = re.compile(r"\s+")
 _INT_TOKEN = re.compile(r"\b(\d{1,4})\b")
-# "Titre ..... 42" — le point commun à toutes les tables des matières textuelles.
-_TOC_LINE = re.compile(r"^(?P<title>\S.*?)\s*[.·•‧∙…\-_\s]{3,}\s*(?P<page>\d{1,4})\s*$")
+# « Titre … 42 » : une paire titre/numéro. On cherche des *paires dans la ligne*
+# et non un motif de ligne entière, parce qu'une TdM sur deux colonnes ressort
+# fusionnée en une seule ligne (« Game Terms 7 How are Telepathics Possible? 72 »)
+# et que beaucoup de maquettes n'ont aucun point de conduite.
+_TOC_PAIR = re.compile(
+    r"(?P<title>[^\W\d_][^\d\n]{2,70}?)\s*[.·•‧∙…\-_ ]{1,}(?P<page>\d{1,4})(?=\s|$)"
+)
+TOC_MIN_PAIRS = 8  # sous ce seuil, c'est une table de jeu, pas une TdM
+TOC_MIN_DENSITY = 0.55  # part des lignes de la page qui portent une paire
+TOC_SEARCH_FRACTION = 0.12  # la TdM est en liminaire, on ne cherche pas partout
 _SHORT_TOKEN_ALLOWLIST = {
     # Mots courts légitimes, fr + en : sans ça tout texte français passe pour du
     # mauvais OCR.
@@ -679,19 +687,50 @@ def analyze_images(pages: list[PageContent]) -> ImagesReport:
 # --- 7. Table des matières textuelle ----------------------------------------
 
 
-def find_toc(pages: list[PageContent]) -> TocReport:
+def find_toc(pages: list[PageContent], boilerplate: set[str]) -> TocReport:
+    """Repère les pages de table des matières textuelle.
+
+    Trois pièges, tous rencontrés sur de vrais livres :
+
+    - la TdM est sur deux colonnes et l'extraction les fusionne, donc on compte
+      les *paires* titre/numéro dans la ligne au lieu d'exiger un motif de ligne
+      entière ;
+    - beaucoup de maquettes n'ont aucun point de conduite, juste un blanc ;
+    - une table d'équipement (« Fusil d'assaut 12 ») ressemble à s'y méprendre à
+      une TdM, d'où la double condition densité + fenêtre de recherche limitée
+      au liminaire.
+    """
     report = TocReport()
-    for page in pages[: max(30, len(pages) // 10)]:
-        hits = [
-            line.text
-            for line in page.lines
-            if _TOC_LINE.match(line.text) and len(line.text) > 8
+    window = max(20, int(len(pages) * TOC_SEARCH_FRACTION))
+
+    for page in pages[:window]:
+        body = [
+            line for line in page.lines if normalize_line(line.text) not in boilerplate
         ]
-        if len(hits) >= 5:
+        if not body:
+            continue
+
+        pairs: list[tuple[str, int]] = []
+        lines_with_pair = 0
+        for line in body:
+            found = [
+                (m.group("title").strip(), int(m.group("page")))
+                for m in _TOC_PAIR.finditer(line.text)
+            ]
+            found = [(t, n) for t, n in found if len(t) >= 4 and 0 < n <= len(pages)]
+            if found:
+                lines_with_pair += 1
+                pairs.extend(found)
+
+        density = lines_with_pair / len(body)
+        if len(pairs) >= TOC_MIN_PAIRS and density >= TOC_MIN_DENSITY:
             report.pages.append(page.index)
-            report.entry_count += len(hits)
-            if len(report.sample) < 6:
-                report.sample.extend(hits[: 6 - len(report.sample)])
+            report.entry_count += len(pairs)
+            for title, number in pairs:
+                if len(report.sample) >= 6:
+                    break
+                report.sample.append(f"{title} … {number}")
+
     return report
 
 
@@ -793,7 +832,7 @@ def probe(path: Path) -> ProbeReport:
     boilerplate = detect_boilerplate(pages)
     columns = analyze_columns(pages, {p.masked for p in boilerplate.patterns})
     images = analyze_images(pages)
-    toc = find_toc(pages)
+    toc = find_toc(pages, {p.masked for p in boilerplate.patterns})
 
     route, rationale, cost = choose_route(text_layer, outline, images)
     meta = reader.metadata

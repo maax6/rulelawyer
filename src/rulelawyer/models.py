@@ -116,6 +116,21 @@ class PageMapMethod(StrEnum):
     PROFILE = "profile"  # imposé par un profil
 
 
+class PageNumberSource(StrEnum):
+    """D'où vient le nombre qu'on a pris pour un folio.
+
+    La distinction est tout sauf cosmétique. `STANDALONE` est le folio lui-même :
+    une ligne dont le texte entier est un nombre. `EMBEDDED` est un nombre noyé
+    dans une ligne plus longue — typiquement la marque d'imposition
+    « …Layout 1 02/04/2009 Page 38 », qui est un artefact de fabrication et ne
+    coïncide avec le folio que par chance.
+    """
+
+    STANDALONE = "standalone"
+    EMBEDDED = "embedded"
+    NONE = "none"
+
+
 class OffsetRun(BaseModel):
     """Plage de pages où le décalage est constant.
 
@@ -138,6 +153,7 @@ class PageMapReport(BaseModel):
     """
 
     method: PageMapMethod = PageMapMethod.IDENTITY
+    source: PageNumberSource = PageNumberSource.NONE
     confidence: float = 0.0
     monotonic: bool = False
     runs: list[OffsetRun] = Field(default_factory=list)
@@ -145,12 +161,22 @@ class PageMapReport(BaseModel):
     uniform_offset: int | None = Field(
         default=None, description="Renseigné seulement si un unique run couvre tout"
     )
+    notes: list[str] = Field(default_factory=list)
 
-    def book_page(self, pdf_index: int) -> int:
+    def book_page(self, pdf_index: int) -> int | None:
+        """Page imprimée, ou `None` si elle n'a pas pu être mesurée.
+
+        On ne devine pas : une page hors de toute plage mesurée doit être
+        signalée en aval, pas citée avec un numéro plausible. Seul le mode
+        `IDENTITY` — où l'absence de tout folio est le constat, pas un échec —
+        retourne le repli `pdf_page` 1-based.
+        """
         for run in self.runs:
             if run.pdf_start <= pdf_index <= run.pdf_end:
                 return pdf_index - run.page_offset
-        return pdf_index + 1
+        if self.method is PageMapMethod.IDENTITY:
+            return pdf_index + 1
+        return None
 
 
 class ImagesReport(BaseModel):
@@ -177,7 +203,14 @@ class ProbeReport(BaseModel):
     page_count: int
     producer: str | None = None
     creator: str | None = None
-    first_page_text_sha256: str | None = None
+    first_page_text_sha256: str | None = Field(
+        default=None,
+        description="Empreinte de la première page *porteuse de texte*. La page "
+        "d'index 0 est presque toujours une couverture graphique : la hacher "
+        "revient à hacher la chaîne vide, et la clé `match` du profil colle "
+        "alors à n'importe quel livre.",
+    )
+    first_page_text_pdf_index: int | None = None
 
     text_layer: TextLayerReport
     outline: OutlineReport

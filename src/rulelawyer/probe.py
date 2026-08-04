@@ -42,6 +42,7 @@ from rulelawyer.models import (
     PageError,
     PageMapMethod,
     PageMapReport,
+    PageNumberSource,
     ProbeReport,
     Route,
     TextLayerReport,
@@ -64,6 +65,9 @@ LARGE_IMAGE_MIN_PX = 100
 OUTLINE_MIN_ENTRIES = 10
 OUTLINE_MAX_MEDIAN_SPAN = 30  # pages par section au-delà desquelles c'est trop gros
 MAX_PAGE_NUMBER = 4000
+# Sous cette couverture, le folio isolé est trop rare pour faire foi et on se
+# rabat sur les nombres noyés dans les lignes — en le disant.
+FOLIO_MIN_COVERAGE = 0.25
 
 _DIGITS = re.compile(r"\d+")
 _WS = re.compile(r"\s+")
@@ -598,48 +602,58 @@ def detect_boilerplate(pages: list[PageContent]) -> BoilerplateReport:
 # --- 5. Numéro de page imprimé ----------------------------------------------
 
 
-def detect_page_map(pages: list[PageContent]) -> PageMapReport:
-    """Mesure `pdf_index0 = book_page + page_offset`, par plages.
+def _collect_offset_votes(
+    pages: list[PageContent],
+) -> tuple[dict[int, Counter[int]], dict[int, Counter[int]]]:
+    """Candidats de décalage par page, séparés selon leur provenance.
 
-    On collecte tous les entiers présents dans les zones d'en-tête et de pied —
-    y compris ceux noyés dans une ligne de boilerplate — puis on retient le
-    décalage qui explique le plus de pages. Le décalage n'est pas supposé
-    constant : couvertures et encarts en introduisent de nouveaux, et un
-    scalaire unique produirait des citations fausses sur une partie du livre.
+    `standalone` : la ligne entière est un nombre. C'est le folio.
+    `embedded`   : le nombre est noyé dans une ligne plus longue. C'est le plus
+                   souvent une marque d'imposition, un millésime ou un prix.
     """
-    per_page_offsets: dict[int, Counter[int]] = {}
+    standalone: dict[int, Counter[int]] = {}
+    embedded: dict[int, Counter[int]] = {}
 
     for page in pages:
         top_zone = page.height * ZONE_FRACTION
         bottom_zone = page.height * (1 - ZONE_FRACTION)
-        offsets: Counter[int] = Counter()
         for line in page.lines:
             if not (line.top < top_zone or line.bottom > bottom_zone):
                 continue
-            for match in _INT_TOKEN.finditer(line.text):
+            text = line.text.strip()
+            if text.isdigit():
+                value = int(text)
+                if 0 < value <= MAX_PAGE_NUMBER:
+                    votes = standalone.setdefault(page.index, Counter())
+                    votes[page.index - value] += 1
+                continue
+            for match in _INT_TOKEN.finditer(text):
                 value = int(match.group(1))
                 if 0 < value <= MAX_PAGE_NUMBER:
-                    offsets[page.index - value] += 1
-        if offsets:
-            per_page_offsets[page.index] = offsets
+                    embedded.setdefault(page.index, Counter())[page.index - value] += 1
+
+    return standalone, embedded
+
+
+def _runs_from_votes(
+    per_page_offsets: dict[int, Counter[int]], page_count: int
+) -> tuple[list[OffsetRun], int]:
+    """Réduit les votes en plages de décalage constant.
+
+    Le décalage retenu pour une page est celui, parmi ses candidats, le mieux
+    soutenu sur l'ensemble du livre : ça élimine les nombres parasites sans
+    supposer un décalage unique.
+    """
+    if not per_page_offsets:
+        return [], 0
 
     global_votes: Counter[int] = Counter()
     for offsets in per_page_offsets.values():
         global_votes.update(offsets.keys())
 
-    if not global_votes:
-        return PageMapReport(method=PageMapMethod.IDENTITY, confidence=0.0)
-
-    # Décalage retenu page par page : celui, parmi les candidats de la page, le
-    # plus soutenu globalement. Ça élimine les nombres parasites (années, prix)
-    # sans supposer un décalage unique.
-    chosen: dict[int, int] = {}
-    for index, offsets in per_page_offsets.items():
-        chosen[index] = max(offsets, key=lambda o: (global_votes[o], -abs(o)))
-
     runs: list[OffsetRun] = []
-    for index in sorted(chosen):
-        offset = chosen[index]
+    for index in sorted(per_page_offsets):
+        offset = max(per_page_offsets[index], key=lambda o: (global_votes[o], -abs(o)))
         if runs and runs[-1].page_offset == offset and runs[-1].pdf_end == index - 1:
             runs[-1].pdf_end = index
         else:
@@ -648,19 +662,121 @@ def detect_page_map(pages: list[PageContent]) -> PageMapReport:
     # Une plage d'une seule page est du bruit, pas un encart.
     solid = [r for r in runs if r.pdf_end - r.pdf_start >= 2]
     measured = sum(r.pdf_end - r.pdf_start + 1 for r in solid)
-    monotonic = all(a.pdf_end < b.pdf_start for a, b in pairwise(solid))
+
+    # Les pages sans folio — illustrations pleine page, ouvertures de section —
+    # fragmentent les plages sans qu'aucun décalage ne change. On les recolle
+    # quand le décalage est identique de part et d'autre : c'est une
+    # interpolation, pas une mesure, et `measured_pages` continue de ne compter
+    # que les pages réellement lues.
+    merged: list[OffsetRun] = []
+    for run in solid:
+        if merged and merged[-1].page_offset == run.page_offset:
+            merged[-1].pdf_end = run.pdf_end
+        else:
+            merged.append(run)
+
+    return merged, measured
+
+
+def _dominant_offset(runs: list[OffsetRun]) -> int | None:
+    if not runs:
+        return None
+    weights: Counter[int] = Counter()
+    for run in runs:
+        weights[run.page_offset] += run.pdf_end - run.pdf_start + 1
+    return weights.most_common(1)[0][0]
+
+
+def detect_page_map(pages: list[PageContent]) -> PageMapReport:
+    """Mesure `pdf_index0 = book_page + page_offset`, par plages.
+
+    Deux précautions, chacune contre une erreur qui ne se voit pas :
+
+    1. **Le folio prime sur la marque d'imposition.** Un nombre noyé dans une
+       ligne — « …Layout 1 02/04/2009 Page 38 » — est un artefact de fabrication
+       qui compte les feuilles du fichier de maquette. Il coïncide parfois avec
+       le folio, jamais par construction. Un livre dont la maquette compte la
+       couverture donne deux décalages parfaitement cohérents et différents : en
+       votant sur le volume, on prendrait l'imposition, à 100 % de confiance, et
+       chaque citation serait fausse d'une page. On ne retient donc l'imposition
+       que faute de folio, et un désaccord entre les deux fait chuter la
+       confiance au lieu d'être arbitré en silence.
+
+    2. **Le décalage n'est pas un scalaire.** Couvertures et encarts en
+       introduisent de nouveaux en cours de livre.
+    """
+    page_count = len(pages) or 1
+    standalone, embedded = _collect_offset_votes(pages)
+
+    folio_runs, folio_measured = _runs_from_votes(standalone, page_count)
+    imposition_runs, imposition_measured = _runs_from_votes(embedded, page_count)
+
+    notes: list[str] = []
+    if folio_measured >= FOLIO_MIN_COVERAGE * page_count:
+        runs, measured = folio_runs, folio_measured
+        source = PageNumberSource.STANDALONE
+        notes.append(
+            f"Folio lu directement sur {folio_measured} pages "
+            "(ligne dont le texte entier est un nombre)."
+        )
+        other = _dominant_offset(imposition_runs)
+        mine = _dominant_offset(folio_runs)
+        if (
+            other is not None
+            and mine is not None
+            and other != mine
+            and imposition_measured >= 0.5 * page_count
+        ):
+            notes.append(
+                f"Un nombre récurrent noyé en en-tête/pied suggère un décalage "
+                f"{other}, le folio dit {mine}. Le folio fait foi, mais vérifiez "
+                "une citation avant d'indexer tout le livre."
+            )
+    elif imposition_measured > 0:
+        runs, measured = imposition_runs, imposition_measured
+        source = PageNumberSource.EMBEDDED
+        notes.append(
+            f"Aucun folio isolé exploitable ({folio_measured} pages seulement) : "
+            "décalage déduit d'un nombre récurrent en en-tête/pied, souvent une "
+            "marque d'imposition. À confirmer par un profil."
+        )
+    else:
+        return PageMapReport(
+            method=PageMapMethod.IDENTITY,
+            source=PageNumberSource.NONE,
+            confidence=0.0,
+            notes=["Aucun numéro de page trouvé : on retombe sur pdf_page 1-based."],
+        )
+
+    covered = sum(r.pdf_end - r.pdf_start + 1 for r in runs)
     uniform = (
-        solid[0].page_offset
-        if len(solid) == 1 and measured >= 0.9 * len(pages)
-        else None
+        runs[0].page_offset if len(runs) == 1 and covered >= 0.9 * page_count else None
     )
+    if covered > measured:
+        notes.append(
+            f"{covered - measured} page(s) sans folio (illustrations pleine page, "
+            "ouvertures de section) sont interpolées : le décalage est identique "
+            "de part et d'autre."
+        )
+    uncovered = page_count - covered
+    if uncovered:
+        notes.append(
+            f"{uncovered} page(s) restent hors de toute plage mesurée. "
+            "`book_page()` y renvoie None plutôt qu'un numéro plausible."
+        )
+    confidence = measured / page_count
+    if source is PageNumberSource.EMBEDDED:
+        confidence *= 0.5  # mesure indirecte : la confiance ne doit pas dire 100 %
+
     return PageMapReport(
         method=PageMapMethod.PRINTED,
-        confidence=measured / (len(pages) or 1),
-        monotonic=monotonic,
-        runs=solid,
+        source=source,
+        confidence=confidence,
+        monotonic=all(a.pdf_end < b.pdf_start for a, b in pairwise(runs)),
+        runs=runs,
         measured_pages=measured,
         uniform_offset=uniform,
+        notes=notes,
     )
 
 
@@ -837,14 +953,25 @@ def probe(path: Path) -> ProbeReport:
     route, rationale, cost = choose_route(text_layer, outline, images)
     meta = reader.metadata
 
-    first_text = pages[0].text if pages else ""
+    # Empreinte pour la clé `match` d'un profil. On saute les pages sans texte :
+    # l'index 0 est presque toujours une couverture graphique, et en hacher le
+    # texte revient à hacher la chaîne vide — une empreinte qui collerait alors à
+    # tous les livres du monde.
+    fingerprint_page = next((p for p in pages if len(p.text.strip()) >= 200), None)
     return ProbeReport(
         pdf_path=str(path),
         file_sha256=_sha256(path),
         page_count=len(pages),
         producer=str(meta.producer) if meta and meta.producer else None,
         creator=str(meta.creator) if meta and meta.creator else None,
-        first_page_text_sha256=hashlib.sha256(first_text.encode()).hexdigest(),
+        first_page_text_sha256=(
+            hashlib.sha256(fingerprint_page.text.encode()).hexdigest()
+            if fingerprint_page is not None
+            else None
+        ),
+        first_page_text_pdf_index=(
+            fingerprint_page.index if fingerprint_page is not None else None
+        ),
         text_layer=text_layer,
         outline=outline,
         columns=columns,

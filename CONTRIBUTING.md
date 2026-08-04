@@ -22,7 +22,8 @@ name: "Mon JDR — Core Rulebook (1re éd.)"
 match:
   page_count: 257
   producer_contains: "pdf-tools.com"
-  first_page_text_sha256: "..."      # empreinte, jamais le texte
+  first_page_text_sha256: "..."      # empreinte de la première page PORTEUSE
+                                     # de texte, jamais le texte lui-même
 route: A
 page_offset: -1                      # pdf_index0 = book_page + page_offset
 boilerplate_patterns:

@@ -12,13 +12,19 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rulelawyer.models import ProbeReport, Route, TextVerdict
+from rulelawyer.models import PageNumberSource, ProbeReport, Route, TextVerdict
 
 _VERDICT_STYLE = {
     TextVerdict.NATIVE: "green",
     TextVerdict.SUSPECT: "yellow",
     TextVerdict.BAD: "red",
     TextVerdict.ABSENT: "red",
+}
+
+_SOURCE_LABEL = {
+    PageNumberSource.STANDALONE: "folio isolé — mesuré directement",
+    PageNumberSource.EMBEDDED: "nombre noyé en en-tête/pied — indirect",
+    PageNumberSource.NONE: "aucune",
 }
 
 _ROUTE_LABEL = {
@@ -147,6 +153,13 @@ def render(report: ProbeReport, console: Console) -> None:
     pm = report.page_map
     table = _kv_table()
     table.add_row("méthode", pm.method.value)
+    table.add_row(
+        "source",
+        Text(
+            _SOURCE_LABEL[pm.source],
+            style="green" if pm.source is PageNumberSource.STANDALONE else "yellow",
+        ),
+    )
     table.add_row("pages mesurées", f"{pm.measured_pages}/{report.page_count}")
     table.add_row("confiance", f"{pm.confidence:.0%}")
     table.add_row("monotone", "oui" if pm.monotonic else "non")
@@ -163,7 +176,14 @@ def render(report: ProbeReport, console: Console) -> None:
                 "",
                 f"pdf {run.pdf_start}-{run.pdf_end} → offset {run.page_offset}",
             )
-    console.print(Panel(table, title="5 · Numéro de page imprimé", border_style="blue"))
+    pagination: list[ConsoleRenderable] = [table]
+    if pm.notes:
+        pagination.append(Text("\n".join(f"· {n}" for n in pm.notes), style="dim"))
+    console.print(
+        Panel(
+            Group(*pagination), title="5 · Numéro de page imprimé", border_style="blue"
+        )
+    )
 
     # --- Images
     im = report.images

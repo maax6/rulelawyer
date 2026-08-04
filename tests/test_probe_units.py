@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import pytest
 
-from rulelawyer.models import PageMapMethod
+from rulelawyer.models import PageMapMethod, PageNumberSource
 from rulelawyer.probe import (
     Line,
     PageContent,
+    analyze_columns,
     detect_boilerplate,
     detect_page_map,
     find_toc,
@@ -77,12 +78,22 @@ def test_boilerplate_ignores_lines_below_threshold() -> None:
 # --- Pagination --------------------------------------------------------------
 
 
+def folio_page(index: int, printed: int, header: str = "Corporation") -> PageContent:
+    """Une page dont le folio est une ligne à part entière — le cas nominal."""
+    page = make_page(index, header)
+    page.lines.append(
+        Line(text=str(printed), x0=60, x1=75, top=FOOTER_TOP, bottom=FOOTER_TOP + 10)
+    )
+    return page
+
+
 def test_page_map_measures_uniform_offset() -> None:
     """book_page = pdf_index0 + 1, donc page_offset = -1."""
-    pages = [make_page(i, f"Corp Layout Page {i + 1}") for i in range(40)]
+    pages = [folio_page(i, i + 1) for i in range(40)]
     report = detect_page_map(pages)
 
     assert report.method is PageMapMethod.PRINTED
+    assert report.source is PageNumberSource.STANDALONE
     assert report.uniform_offset == -1
     assert report.confidence == 1.0
     assert report.book_page(0) == 1
@@ -95,8 +106,8 @@ def test_page_map_handles_a_piecewise_offset() -> None:
     Un offset scalaire unique produirait des citations fausses sur toute la
     seconde moitié du livre, sans rien signaler.
     """
-    pages = [make_page(i, f"Page {i + 1}") for i in range(20)]
-    pages += [make_page(i, f"Page {i - 3}") for i in range(20, 40)]
+    pages = [folio_page(i, i + 1) for i in range(20)]
+    pages += [folio_page(i, i - 3) for i in range(20, 40)]
     report = detect_page_map(pages)
 
     assert report.uniform_offset is None, "le décalage n'est pas constant ici"
@@ -112,6 +123,56 @@ def test_page_map_ignores_constant_noise_like_a_year() -> None:
     assert detect_page_map(pages).uniform_offset == -1
 
 
+def test_page_map_prefers_the_folio_over_the_imposition_mark() -> None:
+    """Le piège que le livre de référence ne peut pas révéler.
+
+    Ici la marque d'imposition compte les feuilles du fichier de maquette à
+    partir de la couverture (décalage 0) tandis que le folio imprimé démarre
+    plus loin (décalage -4). Les deux séries sont parfaitement cohérentes et
+    massivement soutenues : en votant sur le volume on prendrait l'imposition,
+    à pleine confiance, et chaque citation serait fausse de quatre pages.
+    """
+    pages = []
+    for i in range(40):
+        page = make_page(i, f"Corp 2008 Mongoose:Layout 1 09:53 Page {i}")
+        page.lines.append(
+            Line(text=str(i + 4), x0=60, x1=75, top=FOOTER_TOP, bottom=FOOTER_TOP + 10)
+        )
+        pages.append(page)
+
+    report = detect_page_map(pages)
+
+    assert report.source is PageNumberSource.STANDALONE
+    assert report.uniform_offset == -4
+    assert report.book_page(10) == 14
+    assert any("suggère un décalage" in note for note in report.notes)
+
+
+def test_page_map_falls_back_to_embedded_numbers_and_says_so() -> None:
+    """Sans folio isolé, on se rabat sur le nombre noyé — sans prétendre à 100 %."""
+    pages = [make_page(i, f"Corp Layout 09:53 Page {i + 1}") for i in range(40)]
+    report = detect_page_map(pages)
+
+    assert report.source is PageNumberSource.EMBEDDED
+    assert report.uniform_offset == -1
+    assert report.confidence < 0.6
+    assert any("marque d'imposition" in note for note in report.notes)
+
+
+def test_page_map_interpolates_pages_without_a_folio() -> None:
+    """Une illustration pleine page ne change aucun décalage, elle le masque."""
+    pages = [
+        make_page(i, "Corporation") if i in (17, 18, 19) else folio_page(i, i + 1)
+        for i in range(40)
+    ]
+    report = detect_page_map(pages)
+
+    assert report.uniform_offset == -1
+    assert report.measured_pages == 37, "seules les pages réellement lues comptent"
+    assert report.book_page(18) == 19
+    assert any("interpolées" in note for note in report.notes)
+
+
 def test_page_map_reports_identity_when_nothing_is_printed() -> None:
     pages = [make_page(i, "Corporation Core Rulebook") for i in range(20)]
     report = detect_page_map(pages)
@@ -124,6 +185,62 @@ def test_page_map_ignores_body_numbers() -> None:
     """Seules les zones d'en-tête et de pied comptent."""
     pages = [make_page(i, "Corporation", body=[f"{i + 1}"]) for i in range(20)]
     assert detect_page_map(pages).method is PageMapMethod.IDENTITY
+
+
+# --- Colonnes ----------------------------------------------------------------
+
+
+def columned_page(index: int, column_x: list[float], rows: int = 12) -> PageContent:
+    lines = [
+        Line(
+            text="du texte de règle qui occupe la colonne",
+            x0=x,
+            x1=x + 200,
+            top=150.0 + 14 * r,
+            bottom=162.0 + 14 * r,
+        )
+        for r in range(rows)
+        for x in column_x
+    ]
+    return PageContent(
+        index=index, width=PAGE_W, height=PAGE_H, lines=lines, char_count=2000
+    )
+
+
+def test_analyze_columns_finds_two_columns() -> None:
+    pages = [columned_page(i, [60.0, 320.0]) for i in range(60)]
+    report = analyze_columns(pages, boilerplate=set())
+    assert report.dominant == 2
+    assert report.stable
+
+
+def test_analyze_columns_finds_a_single_column() -> None:
+    pages = [columned_page(i, [60.0]) for i in range(60)]
+    assert analyze_columns(pages, boilerplate=set()).dominant == 1
+
+
+def test_analyze_columns_flags_a_layout_that_varies() -> None:
+    """« parfois 3 colonnes » doit ressortir dans la variance, pas être lissé."""
+    pages = [
+        columned_page(i, [60.0, 320.0] if i < 60 else [60.0, 240.0, 420.0])
+        for i in range(120)
+    ]
+    report = analyze_columns(pages, boilerplate=set())
+    assert not report.stable
+    assert set(report.distribution) == {2, 3}
+
+
+def test_analyze_columns_ignores_boilerplate() -> None:
+    """Un folio pleine largeur ne doit pas compter comme un début de colonne."""
+    pages = []
+    for i in range(60):
+        page = columned_page(i, [60.0, 320.0])
+        page.lines.append(
+            Line(text="Corp Layout Page 1", x0=200, x1=400, top=300.0, bottom=312.0)
+        )
+        pages.append(page)
+    report = analyze_columns(pages, boilerplate={normalize_line("Corp Layout Page 1")})
+    assert report.dominant == 2
 
 
 # --- Table des matières textuelle -------------------------------------------

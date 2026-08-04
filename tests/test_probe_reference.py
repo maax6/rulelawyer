@@ -9,9 +9,17 @@ Le PDF n'est pas versionné — voir tests/conftest.py.
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
-from rulelawyer.models import PageMapMethod, ProbeReport, Route, TextVerdict
+from rulelawyer.models import (
+    PageMapMethod,
+    PageNumberSource,
+    ProbeReport,
+    Route,
+    TextVerdict,
+)
 
 pytestmark = pytest.mark.fixture_pdf
 
@@ -51,16 +59,39 @@ def test_images_are_all_seen(reference_report: ProbeReport) -> None:
 def test_page_map_is_measured_not_guessed(reference_report: ProbeReport) -> None:
     """Le folio imprimé vaut l'index PDF 0-based sur ce livre.
 
-    Mesuré sur les glyphes du folio (p. ex. l'index 141 porte « 141 »), pas
-    déduit. Le brief annonçait `index PDF = page livre − 1` ; le PDF dit le
-    contraire, et une erreur d'une unité rendrait fausse chaque citation.
+    Mesuré sur les glyphes du folio (l'index 141 porte « 141 », le 38 porte
+    « 38 »), pas déduit. Le brief annonçait `index PDF = page livre − 1` ; le PDF
+    dit le contraire, et une erreur d'une unité rendrait fausse chaque citation.
+
+    233 pages et non 256 : c'est le nombre de pages qui portent réellement un
+    folio. 256 serait le compte de la marque d'imposition, qui coïncide ici avec
+    le folio par chance et pas par construction.
     """
     page_map = reference_report.page_map
     assert page_map.method is PageMapMethod.PRINTED
+    assert page_map.source is PageNumberSource.STANDALONE
     assert page_map.uniform_offset == 0
     assert page_map.monotonic
-    assert page_map.measured_pages == 256
+    assert page_map.measured_pages == 233
     assert page_map.book_page(141) == 141
+    assert page_map.book_page(38) == 38
+
+
+def test_pages_without_a_folio_are_not_guessed(reference_report: ProbeReport) -> None:
+    """La couverture ne porte pas de numéro : on ne lui en invente pas un."""
+    assert reference_report.page_map.book_page(0) is None
+
+
+def test_fingerprint_is_not_the_empty_hash(reference_report: ProbeReport) -> None:
+    """La clé `match` d'un profil doit distinguer les livres.
+
+    L'index 0 est une couverture graphique : hacher son texte revient à hacher
+    la chaîne vide, et le profil collerait alors à n'importe quel PDF.
+    """
+    empty = hashlib.sha256(b"").hexdigest()
+    assert reference_report.first_page_text_sha256 not in (None, empty)
+    assert reference_report.first_page_text_pdf_index is not None
+    assert reference_report.first_page_text_pdf_index > 0
 
 
 def test_textual_toc_is_found(reference_report: ProbeReport) -> None:

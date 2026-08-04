@@ -89,6 +89,21 @@ citations fausses sur une partie du livre. Le `page_offset` scalaire des profils
 est une surcharge utilisateur pour le cas dégénéré, pas la représentation
 interne.
 
+Le folio prime sur tout autre nombre. Beaucoup de livres portent en en-tête une
+marque d'imposition du type `…Layout 1 02/04/2009 Page 38` : c'est un artefact
+de fabrication qui compte les feuilles du fichier de maquette. Elle est présente
+sur *plus* de pages que le folio, parfaitement régulière, et coïncide parfois
+avec la pagination réelle — par chance, jamais par construction. Un vote au
+volume la choisirait, à pleine confiance, et décalerait chaque citation. On ne
+retient donc que les lignes dont le texte entier est un nombre ; l'imposition
+sert de repli, en le disant, et un désaccord entre les deux fait chuter la
+confiance au lieu d'être tranché en silence.
+
+Et une page dont le folio n'a pas pu être lu ne reçoit pas de numéro plausible :
+`book_page()` y répond `None`. Seules les pages sans folio *encadrées* par un
+décalage identique des deux côtés sont interpolées, et le rapport distingue
+alors ce qui est mesuré de ce qui est déduit.
+
 ### On chunke par section, jamais par fenêtre de tokens
 
 Un stat block coupé en deux est inexploitable en retrieval. L'unité de base est

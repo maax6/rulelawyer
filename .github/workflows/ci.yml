@@ -7,7 +7,14 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Le projet promet Linux, macOS et Windows : autant le prouver plutôt que
+    # de le déduire. Les pièges Windows sont réels et silencieux — fins de ligne
+    # sur le hook, `python3` inexistant, encodage de la console.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -19,6 +26,19 @@ jobs:
       # contient déjà un livre.
       - name: Aucun contenu interdit versionné
         run: uv run python scripts/guard_repo.py --tracked
+
+      # Le hook est la pièce la plus fragile côté portabilité. On l'exécute
+      # pour de vrai. Sur Windows, Git fournit son propre sh : le script POSIX
+      # est le bon format partout, il n'y a pas de variante .bat à maintenir.
+      - name: Le hook pre-commit s'exécute
+        shell: bash
+        run: |
+          git config core.hooksPath .githooks
+          .githooks/pre-commit
+
+      - name: Le hook est bien en LF
+        shell: bash
+        run: git ls-files --eol .githooks/pre-commit | grep -q 'w/lf'
 
       - name: Lint
         run: uv run ruff check .

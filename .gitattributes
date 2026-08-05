@@ -1,0 +1,16 @@
+# Fins de ligne. Sans ça, le défaut de l'installeur Git for Windows
+# (core.autocrlf=true) sort le hook en CRLF, et sh échoue sur
+# « bad interpreter: /bin/sh^M » — le garde-fou du dépôt ne tourne plus, en
+# silence, exactement chez les gens qui ne peuvent pas le déboguer.
+* text=auto eol=lf
+
+.githooks/* text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Binaires : jamais de conversion.
+*.pdf binary
+*.png binary
+*.jpg binary

@@ -1,3 +1,23 @@
 #!/bin/sh
 # Activé par `git config core.hooksPath .githooks` (voir README, section Setup).
-exec python3 "$(git rev-parse --show-toplevel)/scripts/guard_repo.py" --staged
+#
+# Git for Windows fournit son propre sh, donc ce script tourne partout — mais
+# l'interpréteur Python, lui, ne s'appelle pas pareil selon la plateforme :
+# `python3` n'existe pas sur Windows, et pire, l'alias d'exécution du Microsoft
+# Store peut ouvrir le Store au lieu d'échouer franchement. On résout donc
+# l'interpréteur au lieu de le supposer.
+
+root=$(git rev-parse --show-toplevel) || exit 1
+guard="$root/scripts/guard_repo.py"
+
+if command -v py >/dev/null 2>&1 && py -3 -c "" >/dev/null 2>&1; then
+    exec py -3 "$guard" --staged
+elif command -v python3 >/dev/null 2>&1 && python3 -c "" >/dev/null 2>&1; then
+    exec python3 "$guard" --staged
+elif command -v python >/dev/null 2>&1 && python -c "" >/dev/null 2>&1; then
+    exec python "$guard" --staged
+fi
+
+echo "rulelawyer: aucun interpreteur Python trouve (py -3, python3, python)." >&2
+echo "Le garde-fou anti-contenu n'a pas pu s'executer : commit refuse." >&2
+exit 1

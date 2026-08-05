@@ -147,11 +147,19 @@ uv sync --extra vlm
 
 ## Setup développeur
 
-Le hook qui protège le dépôt s'active en une ligne :
+Le hook qui protège le dépôt s'active en une ligne, la même sur Linux, macOS et
+Windows :
 
 ```bash
 git config core.hooksPath .githooks
 ```
+
+Sur Windows, Git fournit son propre `sh` : le hook est un unique script POSIX,
+il n'y a pas de variante `.bat` à maintenir en parallèle. Deux précautions y
+sont prises explicitement — `.gitattributes` force le hook en LF (en CRLF, `sh`
+échoue sur `bad interpreter: /bin/sh^M`) et le hook résout l'interpréteur parmi
+`py -3`, `python3` et `python`, parce que `python3` n'existe pas comme commande
+sur Windows. La CI exécute la suite sur les trois systèmes.
 
 ## Profils
 

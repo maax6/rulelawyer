@@ -49,7 +49,7 @@ def test_guard_refuses_an_undeclared_fixture() -> None:
     from scripts.guard_repo import check
 
     problems = check(["fixtures/pas-declaree.pdf"], staged=False)
-    assert problems and "non déclarée" in problems[0]
+    assert problems and "non declaree" in problems[0]
 
 
 def test_guard_refuses_an_index_artifact() -> None:
@@ -63,3 +63,40 @@ def test_guard_accepts_ordinary_source() -> None:
     from scripts.guard_repo import check
 
     assert check(["src/rulelawyer/probe.py", "README.md"], staged=False) == []
+
+
+def test_guard_messages_are_pure_ascii() -> None:
+    """Le hook doit pouvoir parler sur une console cp850 ou cp1252.
+
+    Une console Windows n'est pas en UTF-8 par défaut. Un « ✗ » ou un tiret
+    cadratin y lève un UnicodeEncodeError : le hook meurt sur une trace au lieu
+    de son message de refus, et un garde-fou qui plante est un garde-fou en qui
+    personne n'a confiance.
+    """
+    from scripts.guard_repo import check
+
+    problems = check(
+        [
+            "Corporation.pdf",
+            "fixtures/inconnue.pdf",
+            "out/chunks.jsonl",
+        ],
+        staged=False,
+    )
+    assert problems
+    for problem in problems:
+        problem.encode("ascii")  # lève UnicodeEncodeError si un caractère sort
+
+
+def test_hook_is_committed_with_lf_endings() -> None:
+    """CRLF sur le hook = « bad interpreter: /bin/sh^M » chez tous les clones
+    Windows, et le garde-fou ne tourne plus sans que personne ne le voie."""
+    if not _is_git_repo():
+        pytest.skip("hors dépôt git")
+    out = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "--eol", ".githooks/pre-commit"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "w/lf" in out, out

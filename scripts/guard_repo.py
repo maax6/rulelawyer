@@ -33,13 +33,25 @@ DERIVED_SUFFIXES = {".jsonl"}
 DERIVED_DIRS = ("chunks/", "qdrant_storage/", ".cache/", "data/", "books/")
 
 FIXTURE_ROOT = "fixtures/"
-SOURCES_FILE = Path("fixtures/SOURCES.md")
+SOURCES_RELPATH = "fixtures/SOURCES.md"
 
 
 def _git(*args: str) -> str:
     return subprocess.run(
         ["git", *args], check=True, capture_output=True, text=True
     ).stdout
+
+
+def repo_root() -> Path:
+    """Racine du dépôt, plutôt que le répertoire courant.
+
+    Git lance ses hooks depuis la racine, mais le script tourne aussi en CI et à
+    la main : mieux vaut ne pas dépendre du CWD.
+    """
+    try:
+        return Path(_git("rev-parse", "--show-toplevel").strip())
+    except (subprocess.CalledProcessError, OSError):
+        return Path.cwd()
 
 
 def staged_paths() -> list[str]:
@@ -54,9 +66,10 @@ def tracked_paths() -> list[str]:
 
 def declared_fixtures() -> set[str]:
     """Chemins de fixtures cités dans SOURCES.md."""
-    if not SOURCES_FILE.exists():
+    sources = repo_root() / SOURCES_RELPATH
+    if not sources.exists():
         return set()
-    text = SOURCES_FILE.read_text(encoding="utf-8", errors="replace")
+    text = sources.read_text(encoding="utf-8", errors="replace")
     return {token.strip("`'\"(),") for token in text.split() if FIXTURE_ROOT in token}
 
 
@@ -68,7 +81,7 @@ def size_of(path: str, *, staged: bool) -> int:
             return int(_git("cat-file", "-s", f":{path}").strip())
         except subprocess.CalledProcessError:
             pass
-    p = Path(path)
+    p = repo_root() / path
     return p.stat().st_size if p.exists() else 0
 
 
@@ -82,28 +95,28 @@ def check(paths: list[str], *, staged: bool) -> list[str]:
         if suffix in BOOK_SUFFIXES:
             if not path.startswith(FIXTURE_ROOT):
                 problems.append(
-                    f"{path} — binaire de livre hors fixtures/. "
-                    "Ce dépôt ne distribue aucun contenu de livre."
+                    f"{path} : binaire de livre hors fixtures/. "
+                    "Ce depot ne distribue aucun contenu de livre."
                 )
                 continue
             if path not in allowed:
                 problems.append(
-                    f"{path} — fixture non déclarée dans {SOURCES_FILE}. "
+                    f"{path} : fixture non declaree dans fixtures/SOURCES.md. "
                     "Ajoute-la avec sa licence (OGL / CC) et sa provenance."
                 )
                 continue
 
         if suffix in DERIVED_SUFFIXES or any(d in path for d in DERIVED_DIRS):
             problems.append(
-                f"{path} — artefact d'ingestion. Un index est un dérivé de "
-                "l'œuvre : il ne se versionne pas."
+                f"{path} : artefact d'ingestion. Un index est un derive de "
+                "l'oeuvre, il ne se versionne pas."
             )
             continue
 
         size = size_of(path, staged=staged)
         if size > MAX_BYTES:
             problems.append(
-                f"{path} — {size / 1024 / 1024:.1f} Mio > 1 Mio. "
+                f"{path} : {size / 1024 / 1024:.1f} Mio > 1 Mio. "
                 "Rien d'aussi gros n'a sa place ici."
             )
 
@@ -121,12 +134,12 @@ def main() -> int:
     problems = check(paths, staged=args.staged)
 
     if problems:
-        scope = "staged" if args.staged else "versionnés"
-        print(f"\n  rulelawyer — fichiers {scope} refusés :\n", file=sys.stderr)
+        scope = "staged" if args.staged else "suivis"
+        print(f"\n  rulelawyer -- fichiers {scope} refuses :\n", file=sys.stderr)
         for problem in problems:
-            print(f"  ✗ {problem}", file=sys.stderr)
+            print(f"  [X] {problem}", file=sys.stderr)
         print(
-            "\n  Si c'est délibéré et légal, ajuste scripts/guard_repo.py.\n"
+            "\n  Si c'est delibere et legal, ajuste scripts/guard_repo.py.\n"
             "  N'utilise pas --no-verify pour contourner.\n",
             file=sys.stderr,
         )

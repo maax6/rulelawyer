@@ -290,7 +290,9 @@ def _load_dictionary() -> tuple[set[str], str] | None:
         if candidate.exists():
             words = {
                 w.strip().lower()
-                for w in candidate.read_text(errors="replace").splitlines()
+                for w in candidate.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
                 if w.strip()
             }
             if words:

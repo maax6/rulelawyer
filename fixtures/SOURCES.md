@@ -17,7 +17,7 @@ RULELAWYER_FIXTURE_PDF=/chemin/vers/mon-livre.pdf uv run pytest
 
 | Fichier | Jeu | Licence | Source | Sert à tester |
 |---|---|---|---|---|
-| _(aucune pour l'instant)_ | | | | |
+| `fixtures/knave.pdf` | Knave 1.0, Ben Milton (Questing Beast) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — la page de copyright du PDF et la page de l'éditeur disent « You are free to share and adapt this material » | https://questingbeast.itch.io/knave | Route B : PDF natif (Word), aucun outline, pagination non mesurée |
 
 Une fixture synthétique est **générée en temporaire**, jamais ajoutée ici :
 [`scripts/make_demo_pdf.py`](../scripts/make_demo_pdf.py), « Manuel des Veilleurs ».
@@ -31,8 +31,8 @@ Le probe a besoin d'au moins un cas par route pour ne pas se calibrer sur le cas
 facile :
 
 - [ ] **Route A** — natif, outline propre
-- [ ] **Route B** — natif, aucun outline (la hiérarchie doit venir de la table
-      des matières textuelle)
+- [x] **Route B** — natif, aucun outline (la hiérarchie doit venir de la table
+      des matières textuelle) — `fixtures/knave.pdf`
 - [ ] **Route C** — scan sans couche texte, et si possible un exemplaire avec
       une *mauvaise* couche OCR : c'est le cas piège
 - [ ] multi-colonnes variable dans un même livre

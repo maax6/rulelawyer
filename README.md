@@ -258,8 +258,10 @@ clé. Les profils et
   matières ; recommandation de route et rapport JSON.
 - [x] Repli du mapping de pagination via la table des matières lorsque les
   folios manquent.
-- [ ] Validation sur d'autres PDF réels, notamment sans outline et scannés.
-  Aucune fixture redistribuable n'est encore ajoutée dans `fixtures/`.
+- [x] Fixture redistribuable sans outline : `fixtures/knave.pdf`
+  (Knave 1.0, CC BY 4.0). PDF natif, outline absent, route B.
+- [ ] Validation sur d'autres PDF réels, notamment un scan sans couche
+  texte (Route C).
 - [x] Route A minimale : extraction depuis l'outline, chunks par section et
   provenance page par page ; PDF synthétique généré hors dépôt.
 - [ ] Profils : chargement YAML, matching, surcharges et `profile init`.

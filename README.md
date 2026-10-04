@@ -267,7 +267,7 @@ clé. Les profils et
 - [ ] Profils : chargement YAML, matching, surcharges et `profile init`.
 - [x] Index Qdrant local, BM25 + dense BGE-M3, RRF, reranker et seuil de refus.
 - [x] CLI `ingest` / `ask`, page choisie par retrieval et garde OpenRouter sans clé.
-- [ ] Validation réelle de la génération OpenRouter avec une clé configurée.
+- [x] Validation réelle de la génération OpenRouter avec une clé configurée : démo Veilleurs, « Traverser un Pont de brume coûte exactement 3 étincelles. (p. 42) ».
 - [ ] Évaluation étendue sur des manuels, REPL et intégration SDK Anthropic.
 - [ ] Route B, serveur MCP, Space Hugging Face, Routes C et D.
 
@@ -275,8 +275,8 @@ Les tests synthétiques vérifient notamment la pagination différente du PDF, l
 les sections multifeuilles, le retrieval et la réouverture de Qdrant, le refus
 hors livre, l'arrêt avant réseau sans clé et le rejet de citations inventées.
 Les modèles et le transport OpenRouter sont doublés dans les tests automatisés.
-Le retrieval a également été exécuté avec les vrais modèles locaux ; l'appel
-OpenRouter reste non validé sans clé. Les tests du PDF commercial sont optionnels.
+Le retrieval a été exécuté avec les vrais modèles locaux. L'appel OpenRouter
+a été validé sur la démo Veilleurs : 3 étincelles, page 42. Les tests du PDF commercial sont optionnels.
 
 ```bash
 uv sync --group test-index

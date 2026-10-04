@@ -6,6 +6,8 @@ livre, il répond à vos questions **en citant les pages imprimées**.
 > *rulelawyer* : l'archétype du joueur qui connaît le bouquin par cœur et
 > l'ouvre à la bonne page au milieu d'une scène. C'est le cahier des charges.
 
+https://github.com/user-attachments/assets/e586d27b-ec01-43c4-af1e-7a0878a90763
+
 ---
 
 ## Legal

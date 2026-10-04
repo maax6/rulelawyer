@@ -458,7 +458,8 @@ def analyze_outline(reader: PdfReader, page_count: int) -> OutlineReport:
     report.coverage_ratio = (page_count - starts[0]) / page_count
     median_span = statistics.median(spans) if spans else float(page_count)
 
-    if report.entry_count < OUTLINE_MIN_ENTRIES:
+    # Un livret peut avoir une section par page sans atteindre dix entrées.
+    if report.entry_count < min(OUTLINE_MIN_ENTRIES, page_count):
         report.reasons.append(
             f"{report.entry_count} entrées pour {page_count} pages — trop grossier."
         )

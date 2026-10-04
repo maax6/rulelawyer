@@ -19,6 +19,12 @@ RULELAWYER_FIXTURE_PDF=/chemin/vers/mon-livre.pdf uv run pytest
 |---|---|---|---|---|
 | _(aucune pour l'instant)_ | | | | |
 
+Une fixture synthétique est **générée en temporaire**, jamais ajoutée ici :
+[`scripts/make_demo_pdf.py`](../scripts/make_demo_pdf.py), « Manuel des Veilleurs ».
+Son texte original (deux règles inventées) est sous CC0. Le PDF natif comporte
+quatre pages, un outline hiérarchique et les folios 41–44. Les tests le créent
+dans `tmp_path` ; la commande de démo du README l'écrit dans `/tmp`.
+
 ## Fixtures recherchées
 
 Le probe a besoin d'au moins un cas par route pour ne pas se calibrer sur le cas

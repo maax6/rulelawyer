@@ -20,12 +20,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --dev
+      # Vrai stockage/retrieval dans les tests, sans torch ni modèles téléchargés.
+      - run: uv sync --dev --group test-index
 
       # Passe en premier : aucun intérêt à lancer les tests sur un dépôt qui
       # contient déjà un livre.
       - name: Aucun contenu interdit versionné
-        run: uv run python scripts/guard_repo.py --tracked
+        run: uv run --group test-index python scripts/guard_repo.py --tracked
 
       # Le hook est la pièce la plus fragile côté portabilité. On l'exécute
       # pour de vrai. Sur Windows, Git fournit son propre sh : le script POSIX
@@ -41,10 +42,10 @@ jobs:
         run: git ls-files --eol .githooks/pre-commit | grep -q 'w/lf'
 
       - name: Lint
-        run: uv run ruff check .
+        run: uv run --group test-index ruff check .
       - name: Format
-        run: uv run ruff format --check .
+        run: uv run --group test-index ruff format --check .
       - name: Types
-        run: uv run mypy
+        run: uv run --group test-index mypy
       - name: Tests
-        run: uv run pytest -q
+        run: uv run --group test-index pytest -q

@@ -1,8 +1,4 @@
-"""Point d'entrée CLI.
-
-Les commandes d'ingestion (`ingest`, `ask`, ...) arriveront aux étapes
-suivantes du brief ; seul `probe` est implémenté pour l'instant.
-"""
+"""Diagnostic, ingestion Route A et questions sourcées."""
 
 from __future__ import annotations
 
@@ -14,6 +10,8 @@ import typer
 from rich.console import Console
 
 from rulelawyer import __version__
+from rulelawyer.answer import answer_from_chunks
+from rulelawyer.ingest import ingest_route_a, read_chunks, write_chunks
 from rulelawyer.probe import probe
 from rulelawyer.report import render
 
@@ -24,6 +22,75 @@ app = typer.Typer(
     "vous apportez votre propre PDF.",
 )
 console = Console()
+errors = Console(stderr=True)
+
+
+def _ingest(pdf: Path, output: Path) -> Path:
+    report = probe(pdf)
+    chunks = ingest_route_a(pdf, report)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "probe.json").write_text(
+        report.model_dump_json(indent=2), encoding="utf-8"
+    )
+    path = output / "chunks.jsonl"
+    write_chunks(chunks, path)
+    return path
+
+
+@app.command("ingest")
+def ingest_command(
+    pdf: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
+    output: Annotated[Path, typer.Option("--output", "-o")] = Path(".cache/rulelawyer"),
+) -> None:
+    """Extrait un chunks.jsonl par sections, après diagnostic Route A."""
+    try:
+        path = _ingest(pdf, output)
+    except (ValueError, OSError) as exc:
+        errors.print(str(exc), markup=False)
+        raise typer.Exit(code=1) from exc
+    console.print(str(path), markup=False)
+
+
+@app.command("ask")
+def ask_command(
+    pdf: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
+    question: Annotated[str, typer.Argument(help="Question sur ce manuel.")],
+    cache_dir: Annotated[Path, typer.Option("--cache-dir")] = Path(".cache/rulelawyer"),
+    threshold: Annotated[float, typer.Option("--threshold", min=0, max=1)] = 0.5,
+    debug: Annotated[bool, typer.Option("--debug")] = False,
+) -> None:
+    """Interroge un PDF natif : index local, retrieval hybride, claude -p."""
+    try:
+        if not question.strip():
+            raise ValueError("La question est vide.")
+        from rulelawyer.retrieval import BGEModels, open_index
+
+        with errors.status("Diagnostic et extraction des sections…"):
+            chunks_path = _ingest(pdf, cache_dir)
+            chunks = read_chunks(chunks_path)
+        with (
+            errors.status("Index local, recherche hybride et reranking CPU…"),
+            open_index(chunks, cache_dir / "qdrant_storage", BGEModels()) as index,
+        ):
+            hits = index.search(question, threshold=threshold)
+        if debug:
+            for hit in hits:
+                errors.print(
+                    f"{hit.chunk.section_path} | book_page={hit.chunk.book_page} "
+                    f"pdf_page={hit.chunk.pdf_page} | BM25 rang={hit.bm25_rank} "
+                    f"dense rang={hit.dense_rank} RRF={hit.rrf_score:.4f} "
+                    f"rerank={hit.score:.4f}",
+                    markup=False,
+                )
+        with errors.status("Sélection des preuves via claude -p…"):
+            answer = answer_from_chunks(question, [hit.chunk for hit in hits])
+    except ImportError as exc:
+        errors.print("Dépendances d'index absentes : lancez uv sync --extra index.")
+        raise typer.Exit(code=2) from exc
+    except (ValueError, OSError, RuntimeError) as exc:
+        errors.print(str(exc), markup=False)
+        raise typer.Exit(code=1) from exc
+    console.print(answer, markup=False, highlight=False)
 
 
 @app.command("probe")

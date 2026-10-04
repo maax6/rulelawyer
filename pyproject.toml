@@ -32,7 +32,8 @@ dependencies = [
 # Index + retrieval hybride. Tire torch — d'où l'extra séparé.
 index = [
     "qdrant-client>=1.12",
-    "FlagEmbedding>=1.3",
+    # 1.4 passe dtype=, incompatible avec transformers 4.47 du lock partagé.
+    "FlagEmbedding>=1.3,<1.4",
     "torch>=2.4",
     "bm25s>=0.2",
 ]
@@ -61,7 +62,9 @@ Homepage = "https://github.com/maax6/rulelawyer"
 Issues = "https://github.com/maax6/rulelawyer/issues"
 
 [dependency-groups]
+test-index = ["qdrant-client>=1.12", "bm25s>=0.2"]
 dev = [
+    "reportlab>=4.2",
     "pytest>=8.3",
     "ruff>=0.8",
     "mypy>=1.13",
@@ -91,7 +94,7 @@ strict = true
 files = ["src", "tests", "scripts"]
 
 [[tool.mypy.overrides]]
-module = ["pdfplumber.*"]
+module = ["pdfplumber.*", "reportlab.*", "FlagEmbedding.*", "bm25s.*", "qdrant_client.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

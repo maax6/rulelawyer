@@ -147,6 +147,50 @@ Pour l'ingestion VLM (Route C, GPU) :
 uv sync --extra vlm
 ```
 
+## Démo locale : PDF → question → page imprimée
+
+```bash
+uv sync --extra index
+uv run --extra index python scripts/make_demo_pdf.py /tmp/rulelawyer-demo/veilleurs.pdf
+uv run --extra index rulelawyer ask /tmp/rulelawyer-demo/veilleurs.pdf \
+  "Combien coûte la traversée d'un Pont de brume ?" \
+  --cache-dir /tmp/rulelawyer-demo/index --debug
+uv run --extra index rulelawyer ask /tmp/rulelawyer-demo/veilleurs.pdf \
+  "Quel dé faut-il lancer pour attaquer un dragon ?" \
+  --cache-dir /tmp/rulelawyer-demo/index
+```
+
+Résultats attendus : **3 étincelles (p. 42)**, puis **« Ce n'est pas dans le
+manuel. »** Le PDF original de démonstration est sous CC0 : quatre pages
+physiques, folios 41–44 et deux règles inventées. Aucun livre n'est téléchargé.
+
+La première recherche télécharge BGE-M3 et le reranker BGE v2 m3 (plusieurs Go).
+Ils tournent sur CPU. Qdrant persiste dans `--cache-dir`, sans serveur ni Docker.
+BM25 et dense récupèrent chacun jusqu'à 30 sections, fusion RRF (k=60), puis
+reranking vers six résultats au maximum. `--threshold` fixe le seuil de rejet
+(0,5 par défaut, à calibrer sur d'autres manuels).
+
+La réponse utilise **`claude -p` avec un abonnement déjà connecté**
+(`claude auth status`), sans clé API et sans l'extra `agent`. L'index et le
+retrieval restent locaux ; les passages retenus sont envoyés à Claude.
+Cette première version répond par extraits : Claude choisit des phrases, le
+code vérifie leur présence dans la page source et ajoute son folio. Une citation
+inventée, une page inconnue ou l'absence de preuve produit un refus. Une panne
+Claude est une erreur explicite, pas un refus présenté comme une recherche vide.
+
+Pour produire seulement le format commun, sans dépendance d'indexation :
+
+```bash
+uv run rulelawyer ingest mon-livre.pdf --output .cache/mon-livre
+```
+
+Le dossier contient `probe.json` et `chunks.jsonl`. Les sections conservent le
+texte et le folio de chaque page, et leur chemin est inclus dans le texte
+embeddé. Une section multifeuille garde donc des citations exactes. Une
+destination de section ambiguë est signalée ; les sections dépassant la
+capacité du modèle sont refusées sans troncature silencieuse. Routes B–D,
+images, profils et mise en page complexe restent hors de cette démo.
+
 ## Setup développeur
 
 Le hook qui protège le dépôt s'active en une ligne, la même sur Linux, macOS et
@@ -178,11 +222,10 @@ rulelawyer profile init mon-livre.pdf > profiles/mon-jdr.yaml
 
 ## État
 
-**Disponible aujourd'hui : le diagnostic d'un PDF.** La CLI expose `probe`
-(rapport lisible et export JSON avec `--json`) et `version`. Elle recommande
-une route, mais n'ingère pas encore le livre et ne répond pas aux questions.
-Les sections ci-dessus sur le chunking, le retrieval, l'agent et les profils
-décrivent la cible ; `rulelawyer profile init` n'est pas encore disponible.
+**Disponible aujourd'hui : `probe`, `ingest` Route A et `ask` sur PDF natif
+avec outline exploitable.** La démo ci-dessus traverse extraction, index local,
+retrieval hybride et réponse sourcée via Claude CLI. Les profils et
+`rulelawyer profile init` ne sont pas encore disponibles.
 
 - [x] Scaffold, hygiène du dépôt et CI Linux / macOS / Windows : hook
   pre-commit, refus des contenus interdits et des fichiers de secrets,
@@ -194,14 +237,27 @@ décrivent la cible ; `rulelawyer profile init` n'est pas encore disponible.
   matières lorsque les folios manquent ; validation sur d'autres PDF réels,
   notamment sans outline et scannés. Aucune fixture redistribuable n'est
   encore ajoutée dans `fixtures/`.
-- [ ] Route A : extraction structurée depuis l'outline et chunking par section.
+- [x] Route A minimale : extraction depuis l'outline, chunks par section et
+  provenance page par page ; PDF synthétique généré hors dépôt.
 - [ ] Profils : chargement YAML, matching, surcharges et `profile init`.
-- [ ] Index, retrieval hybride et jeu d'évaluation des réponses.
-- [ ] Agent de questions-réponses et CLI d'ingestion / conversation.
+- [x] Index Qdrant local, BM25 + dense BGE-M3, RRF, reranker et seuil de refus.
+- [x] CLI `ingest` / `ask` et sélection de citations vérifiées via `claude -p`.
+- [ ] Évaluation étendue sur des manuels, REPL et intégration SDK Anthropic.
 - [ ] Route B, serveur MCP, Space Hugging Face, Routes C et D.
 
-Validation de cet état : **62 tests passent en local**, dont les 12 tests
-d'acceptation sur le PDF de référence non versionné. La
-[CI du commit `f05b27a`](https://github.com/maax6/rulelawyer/actions/runs/37216311048)
-est verte sur les trois systèmes ; elle n'exécute pas les 12 tests nécessitant
-ce PDF local.
+Les tests synthétiques vérifient notamment la pagination différente du PDF,
+les sections multifeuilles, le retrieval et la réouverture de Qdrant, le refus
+hors livre et le rejet de citations inventées. Les modèles et Claude sont
+doublés dans les tests automatisés ; la démo se lance avec les vrais modèles
+et le vrai abonnement. Les tests du PDF commercial restent optionnels.
+
+```bash
+uv sync --group test-index
+uv run --group test-index ruff check .
+uv run --group test-index ruff format --check .
+uv run --group test-index mypy
+uv run --group test-index pytest -q
+```
+
+Le groupe `test-index` permet de tester Qdrant et BM25 en CI sans installer
+torch. La CI multi-OS reste à exécuter pour ces changements locaux.

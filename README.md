@@ -178,9 +178,30 @@ rulelawyer profile init mon-livre.pdf > profiles/mon-jdr.yaml
 
 ## État
 
-- [x] Scaffold, hygiène dépôt, CI
-- [x] Phase 1 — probe
-- [ ] Route A + chunking + profils
-- [ ] Index + retrieval hybride + éval
-- [ ] Agent + CLI
-- [ ] Route B, serveur MCP, Space HF, Routes C et D
+**Disponible aujourd'hui : le diagnostic d'un PDF.** La CLI expose `probe`
+(rapport lisible et export JSON avec `--json`) et `version`. Elle recommande
+une route, mais n'ingère pas encore le livre et ne répond pas aux questions.
+Les sections ci-dessus sur le chunking, le retrieval, l'agent et les profils
+décrivent la cible ; `rulelawyer profile init` n'est pas encore disponible.
+
+- [x] Scaffold, hygiène du dépôt et CI Linux / macOS / Windows : hook
+  pre-commit, refus des contenus interdits et des fichiers de secrets,
+  lint, formatage, types et tests.
+- [x] Socle du probe et CLI : analyse de la couche texte, de l'outline,
+  des colonnes, du boilerplate, des folios, des images et de la table des
+  matières ; recommandation de route et rapport JSON.
+- [ ] Terminer la phase 1 : repli du mapping de pagination via la table des
+  matières lorsque les folios manquent ; validation sur d'autres PDF réels,
+  notamment sans outline et scannés. Aucune fixture redistribuable n'est
+  encore ajoutée dans `fixtures/`.
+- [ ] Route A : extraction structurée depuis l'outline et chunking par section.
+- [ ] Profils : chargement YAML, matching, surcharges et `profile init`.
+- [ ] Index, retrieval hybride et jeu d'évaluation des réponses.
+- [ ] Agent de questions-réponses et CLI d'ingestion / conversation.
+- [ ] Route B, serveur MCP, Space Hugging Face, Routes C et D.
+
+Validation de cet état : **62 tests passent en local**, dont les 12 tests
+d'acceptation sur le PDF de référence non versionné. La
+[CI du commit `f05b27a`](https://github.com/maax6/rulelawyer/actions/runs/37216311048)
+est verte sur les trois systèmes ; elle n'exécute pas les 12 tests nécessitant
+ce PDF local.

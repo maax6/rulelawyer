@@ -160,23 +160,35 @@ uv run --extra index rulelawyer ask /tmp/rulelawyer-demo/veilleurs.pdf \
   --cache-dir /tmp/rulelawyer-demo/index
 ```
 
-Résultats attendus : **3 étincelles (p. 42)**, puis **« Ce n'est pas dans le
-manuel. »** Le PDF original de démonstration est sous CC0 : quatre pages
+Avec `OPENROUTER_API_KEY` définie, résultat attendu : **3 étincelles (p. 42)**.
+Sans clé, la première commande retrouve `book_page=42` puis s'arrête avant
+l'appel de génération avec une erreur explicite. La question hors livre
+renvoie **« Ce n'est pas dans le manuel. »**, sans clé ni appel de génération.
+Le PDF original de démonstration est sous CC0 : quatre pages
 physiques, folios 41–44 et deux règles inventées. Aucun livre n'est téléchargé.
 
 La première recherche télécharge BGE-M3 et le reranker BGE v2 m3 (plusieurs Go).
-Ils tournent sur CPU. Qdrant persiste dans `--cache-dir`, sans serveur ni Docker.
+Le périphérique est choisi automatiquement : MPS sur Mac compatible, CUDA
+si disponible, sinon CPU. Aucune API d'embedding. Qdrant persiste dans
+`--cache-dir`, sans serveur ni Docker.
 BM25 et dense récupèrent chacun jusqu'à 30 sections, fusion RRF (k=60), puis
-reranking vers six résultats au maximum. `--threshold` fixe le seuil de rejet
+reranking des passages paginés vers six résultats au maximum. `--threshold`
+fixe le seuil de rejet
 (0,5 par défaut, à calibrer sur d'autres manuels).
 
-La réponse utilise **`claude -p` avec un abonnement déjà connecté**
-(`claude auth status`), sans clé API et sans l'extra `agent`. L'index et le
-retrieval restent locaux ; les passages retenus sont envoyés à Claude.
-Cette première version répond par extraits : Claude choisit des phrases, le
-code vérifie leur présence dans la page source et ajoute son folio. Une citation
-inventée, une page inconnue ou l'absence de preuve produit un refus. Une panne
-Claude est une erreur explicite, pas un refus présenté comme une recherche vide.
+La réponse utilise **OpenRouter, `openai/gpt-4o-mini`, température 0**, via
+`https://openrouter.ai/api/v1/chat/completions` et `OPENROUTER_API_KEY`.
+La clé n'est ni enregistrée ni affichée. L'extra SDK `agent = anthropic`
+reste réservé à une intégration ultérieure ; cette démo utilise le client
+HTTP standard Python. Aucun recours à Claude CLI ou à un modèle `:free`.
+
+Le retrieval fixe le passage et sa `book_page` **avant** la génération.
+Seul le texte de ce passage est envoyé au modèle, qui ne choisit jamais de
+page. Cette version répond par phrases complètes reprises de la preuve : le
+code les vérifie et ajoute le folio du passage. Une valeur inventée ou un
+numéro de page étranger au passage produit « Ce n'est pas établi par le
+manuel. ». Une panne OpenRouter est une erreur explicite. Sans résultat
+au-dessus du seuil, le refus hors livre ne contient aucun numéro de page.
 
 Pour produire seulement le format commun, sans dépendance d'indexation :
 
@@ -224,7 +236,8 @@ rulelawyer profile init mon-livre.pdf > profiles/mon-jdr.yaml
 
 **Disponible aujourd'hui : `probe`, `ingest` Route A et `ask` sur PDF natif
 avec outline exploitable.** La démo ci-dessus traverse extraction, index local,
-retrieval hybride et réponse sourcée via Claude CLI. Les profils et
+retrieval hybride et génération OpenRouter conditionnée à la présence de la
+clé. Les profils et
 `rulelawyer profile init` ne sont pas encore disponibles.
 
 - [x] Scaffold, hygiène du dépôt et CI Linux / macOS / Windows : hook
@@ -241,15 +254,17 @@ retrieval hybride et réponse sourcée via Claude CLI. Les profils et
   provenance page par page ; PDF synthétique généré hors dépôt.
 - [ ] Profils : chargement YAML, matching, surcharges et `profile init`.
 - [x] Index Qdrant local, BM25 + dense BGE-M3, RRF, reranker et seuil de refus.
-- [x] CLI `ingest` / `ask` et sélection de citations vérifiées via `claude -p`.
+- [x] CLI `ingest` / `ask`, page choisie par retrieval et garde OpenRouter sans clé.
+- [ ] Validation réelle de la génération OpenRouter avec une clé configurée.
 - [ ] Évaluation étendue sur des manuels, REPL et intégration SDK Anthropic.
 - [ ] Route B, serveur MCP, Space Hugging Face, Routes C et D.
 
 Les tests synthétiques vérifient notamment la pagination différente du PDF,
 les sections multifeuilles, le retrieval et la réouverture de Qdrant, le refus
-hors livre et le rejet de citations inventées. Les modèles et Claude sont
-doublés dans les tests automatisés ; la démo se lance avec les vrais modèles
-et le vrai abonnement. Les tests du PDF commercial restent optionnels.
+hors livre, l'arrêt avant réseau sans clé et le rejet de citations inventées.
+Les modèles et le transport OpenRouter sont doublés dans les tests automatisés.
+Le retrieval a également été exécuté avec les vrais modèles locaux ; l'appel
+OpenRouter reste non validé sans clé. Les tests du PDF commercial sont optionnels.
 
 ```bash
 uv sync --group test-index

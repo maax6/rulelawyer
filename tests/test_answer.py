@@ -1,119 +1,113 @@
-"""Contrat de sortie de Claude : citations contrôlées, jamais de page inventée."""
+"""Contrat HTTP simulé ; les folios sont fixés avant toute génération."""
 
+import io
 import json
-import subprocess
 from typing import Any
+from urllib.request import Request
 
 import pytest
 
-from rulelawyer.answer import NOT_FOUND, answer_from_chunks
-from rulelawyer.ingest import Chunk, ChunkPage
-from rulelawyer.models import Route
+from rulelawyer.answer import NOT_ESTABLISHED, NOT_FOUND, answer_from_passage
+from rulelawyer.ingest import ChunkPage
 
 
 @pytest.fixture
-def section() -> Chunk:
-    return Chunk(
-        id="b" * 64,
-        book_id="a" * 64,
-        section_path="Règles > Repos",
-        raw_text="Introduction.\nLe repos rend 2 étincelles.",
-        text="Règles > Repos\n\nIntroduction.\nLe repos rend 2 étincelles.",
-        book_page=42,
-        pdf_page=2,
-        route=Route.A,
-        pages=[
-            ChunkPage(pdf_page=2, book_page=42, text="Introduction."),
-            ChunkPage(pdf_page=3, book_page=43, text="Le repos rend 2 étincelles."),
-        ],
-    )
+def passage() -> ChunkPage:
+    return ChunkPage(pdf_page=3, book_page=43, text="Le repos rend 2 étincelles.")
 
 
-def fake_claude(monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]) -> None:
-    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        assert command[:2] == ["claude", "-p"]
-        assert command[command.index("--tools") + 1] == ""
-        assert "--strict-mcp-config" in command
-        assert "--no-session-persistence" in command
-        assert "ANTHROPIC_API_KEY" not in kwargs["env"]
-        assert "sources" in json.loads(kwargs["input"])
-        return subprocess.CompletedProcess(
-            command,
-            0,
+def fake_openrouter(monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-only-not-a-secret")
+
+    def request(req: Request, **kwargs: Any) -> io.BytesIO:
+        assert req.full_url == "https://openrouter.ai/api/v1/chat/completions"
+        assert req.get_method() == "POST"
+        assert req.get_header("Authorization") == "Bearer test-only-not-a-secret"
+        assert isinstance(req.data, bytes)
+        payload = json.loads(req.data)
+        assert payload["model"] == "openai/gpt-4o-mini"
+        assert payload["temperature"] == 0
+        source = json.loads(payload["messages"][1]["content"])
+        assert set(source) == {"question", "passage"}
+        return io.BytesIO(
             json.dumps(
                 {
-                    "is_error": False,
-                    "structured_output": payload,
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {"established": True, "answer": answer}
+                                )
+                            }
+                        }
+                    ]
                 }
-            ),
-            "",
+            ).encode()
         )
 
-    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr("rulelawyer.answer.urlopen", request)
 
 
-def test_answer_cites_the_actual_printed_page_within_a_section(
-    section: Chunk,
+def test_answer_copies_retrieval_book_page_without_asking_model_for_page(
+    passage: ChunkPage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_claude(
-        monkeypatch,
-        {
-            "found": True,
-            "citations": [
-                {
-                    "source_id": section.id + ":3",
-                    "quote": "Le repos rend 2 étincelles.",
-                }
-            ],
-        },
-    )
-    assert answer_from_chunks("Que rend le repos ?", [section]) == (
+    fake_openrouter(monkeypatch, "Le repos rend 2 étincelles.")
+    assert answer_from_passage("Que rend le repos ?", passage) == (
         "Le repos rend 2 étincelles. (p. 43)"
     )
 
 
 @pytest.mark.parametrize(
-    "source_id,quote",
+    "answer",
     [
-        ("b" * 64 + ":2", "Le repos rend 2 étincelles."),
-        ("inconnu:3", "Le repos rend 2 étincelles."),
-        ("b" * 64 + ":3", "Le repos rend 8 étincelles."),
+        "Le repos rend 2 étincelles. (p. 3)",
+        "Le repos rend 2 étincelles. (page 99)",
+        "Le repos rend 2 étincelles. (pp. 43-99)",
+        "Le repos rend 8 étincelles.",
     ],
 )
-def test_answer_refuses_wrong_page_or_invented_quote(
-    section: Chunk,
+def test_answer_rejects_wrong_page_or_invented_mechanics(
+    passage: ChunkPage,
     monkeypatch: pytest.MonkeyPatch,
-    source_id: str,
-    quote: str,
+    answer: str,
 ) -> None:
-    fake_claude(
-        monkeypatch,
-        {
-            "found": True,
-            "citations": [
-                {
-                    "source_id": source_id,
-                    "quote": quote,
-                }
-            ],
-        },
+    fake_openrouter(monkeypatch, answer)
+    assert answer_from_passage("Que rend le repos ?", passage) == NOT_ESTABLISHED
+
+
+def test_model_cannot_cite_partial_number_as_if_it_were_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    passage = ChunkPage(
+        pdf_page=2, book_page=42, text="Le passage coûte 13 étincelles."
     )
-    assert answer_from_chunks("Que rend le repos ?", [section]) == NOT_FOUND
+    fake_openrouter(monkeypatch, "3 étincelles.")
+    assert answer_from_passage("Combien ?", passage) == NOT_ESTABLISHED
 
 
-def test_answer_refuses_missing_rule_and_does_not_call_claude_without_hits(
-    section: Chunk,
+def test_matching_model_page_is_removed_and_citation_is_added_by_code(
+    passage: ChunkPage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_claude(monkeypatch, {"found": False, "citations": []})
-    assert answer_from_chunks("Quel dé de combat ?", [section]) == NOT_FOUND
+    fake_openrouter(monkeypatch, "Le repos rend 2 étincelles. (p. 43)")
+    assert answer_from_passage("Que rend le repos ?", passage) == (
+        "Le repos rend 2 étincelles. (p. 43)"
+    )
+
+
+def test_no_network_without_key_or_without_citable_passage(
+    passage: ChunkPage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     def unexpected(*args: Any, **kwargs: Any) -> None:
-        pytest.fail("Claude ne doit pas être appelé sans source citable")
+        pytest.fail("Aucun appel réseau autorisé")
 
-    monkeypatch.setattr(subprocess, "run", unexpected)
-    assert answer_from_chunks("Quel dé de combat ?", []) == NOT_FOUND
-    for page in section.pages:
-        page.book_page = None
-    assert answer_from_chunks("Quel dé de combat ?", [section]) == NOT_FOUND
+    monkeypatch.setattr("rulelawyer.answer.urlopen", unexpected)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY absente"):
+        answer_from_passage("Que rend le repos ?", passage)
+    assert answer_from_passage("Quel dé de combat ?", None) == NOT_FOUND
+    passage.book_page = None
+    assert answer_from_passage("Que rend le repos ?", passage) == NOT_ESTABLISHED

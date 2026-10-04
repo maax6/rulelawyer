@@ -17,7 +17,7 @@ from uuid import UUID
 import bm25s
 from qdrant_client import QdrantClient, models
 
-from rulelawyer.ingest import Chunk
+from rulelawyer.ingest import Chunk, ChunkPage
 
 
 class RetrievalModels(Protocol):
@@ -29,7 +29,7 @@ class RetrievalModels(Protocol):
 
 
 class BGEModels:
-    """Modèles du brief, chargés seulement par ask, sur CPU."""
+    """Modèles locaux, chargés seulement par ask, périphérique auto."""
 
     name = "BAAI/bge-m3:dense:v1"
 
@@ -37,13 +37,13 @@ class BGEModels:
     def encoder(self) -> Any:
         from FlagEmbedding import BGEM3FlagModel
 
-        return BGEM3FlagModel("BAAI/bge-m3", use_fp16=False, devices="cpu")
+        return BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
 
     @cached_property
     def ranker(self) -> Any:
         from FlagEmbedding import FlagReranker
 
-        return FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=False, devices="cpu")
+        return FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=False)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if any(len(self.encoder.tokenizer(t)["input_ids"]) > 8192 for t in texts):
@@ -80,6 +80,7 @@ class BGEModels:
 @dataclass(frozen=True)
 class SearchHit:
     chunk: Chunk
+    page: ChunkPage
     score: float
     rrf_score: float
     bm25_rank: int | None
@@ -196,17 +197,30 @@ class HybridIndex:
             dense = pool.submit(self._dense, question, limit)
             rankings = [lexical.result(), dense.result()]
         fused = reciprocal_rank_fusion(rankings)
-        candidates = sorted(fused, key=lambda key: fused[key], reverse=True)
-        scores = self.backend.rerank(question, [self.by_id[k].text for k in candidates])
+        candidates = [
+            (key, page)
+            for key in sorted(fused, key=lambda key: fused[key], reverse=True)
+            for page in self.by_id[key].pages
+        ]
+        # Les chunks restent des sections. Le dernier reranking choisit le
+        # passage et son folio AVANT de donner le texte au modèle génératif.
+        scores = self.backend.rerank(
+            question,
+            [
+                f"{self.by_id[key].section_path}\n\n{page.text}"
+                for key, page in candidates
+            ],
+        )
         ranks = [{key: n for n, key in enumerate(r, 1)} for r in rankings]
         hits = []
-        for key, score in zip(candidates, scores, strict=True):
+        for (key, page), score in zip(candidates, scores, strict=True):
             if not math.isfinite(score) or not 0 <= score <= 1:
                 raise ValueError("Le reranker a renvoyé un score invalide.")
             if score >= threshold:
                 hits.append(
                     SearchHit(
                         self.by_id[key],
+                        page,
                         score,
                         fused[key],
                         ranks[0].get(key),

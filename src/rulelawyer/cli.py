@@ -10,7 +10,7 @@ import typer
 from rich.console import Console
 
 from rulelawyer import __version__
-from rulelawyer.answer import answer_from_chunks
+from rulelawyer.answer import answer_from_passage
 from rulelawyer.ingest import ingest_route_a, read_chunks, write_chunks
 from rulelawyer.probe import probe
 from rulelawyer.report import render
@@ -59,7 +59,7 @@ def ask_command(
     threshold: Annotated[float, typer.Option("--threshold", min=0, max=1)] = 0.5,
     debug: Annotated[bool, typer.Option("--debug")] = False,
 ) -> None:
-    """Interroge un PDF natif : index local, retrieval hybride, claude -p."""
+    """Interroge un PDF natif : index local, retrieval hybride, OpenRouter."""
     try:
         if not question.strip():
             raise ValueError("La question est vide.")
@@ -69,21 +69,21 @@ def ask_command(
             chunks_path = _ingest(pdf, cache_dir)
             chunks = read_chunks(chunks_path)
         with (
-            errors.status("Index local, recherche hybride et reranking CPU…"),
+            errors.status("Index local, recherche hybride et reranking…"),
             open_index(chunks, cache_dir / "qdrant_storage", BGEModels()) as index,
         ):
             hits = index.search(question, threshold=threshold)
         if debug:
             for hit in hits:
                 errors.print(
-                    f"{hit.chunk.section_path} | book_page={hit.chunk.book_page} "
-                    f"pdf_page={hit.chunk.pdf_page} | BM25 rang={hit.bm25_rank} "
+                    f"{hit.chunk.section_path} | book_page={hit.page.book_page} "
+                    f"pdf_page={hit.page.pdf_page} | BM25 rang={hit.bm25_rank} "
                     f"dense rang={hit.dense_rank} RRF={hit.rrf_score:.4f} "
                     f"rerank={hit.score:.4f}",
                     markup=False,
                 )
-        with errors.status("Sélection des preuves via claude -p…"):
-            answer = answer_from_chunks(question, [hit.chunk for hit in hits])
+        with errors.status("Réponse depuis le passage retenu via OpenRouter…"):
+            answer = answer_from_passage(question, hits[0].page if hits else None)
     except ImportError as exc:
         errors.print("Dépendances d'index absentes : lancez uv sync --extra index.")
         raise typer.Exit(code=2) from exc

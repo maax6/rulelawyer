@@ -1,9 +1,10 @@
 """Vraies recherches BM25/Qdrant ; seuls les modèles neuronaux sont doublés."""
 
+import io
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.request import Request
 
 import pytest
 
@@ -44,14 +45,14 @@ def test_hybrid_search_reopens_local_index_and_rejects_unrelated_question(
     for _ in range(2):
         with open_index(chunks, tmp_path / "qdrant", SmallTestModels()) as index:
             hits = index.search("Combien coûte un Pont de brume ?")
-            assert hits[0].chunk.book_page == 42
+            assert hits[0].page.book_page == 42
             assert hits[0].bm25_rank is not None
             assert hits[0].dense_rank is not None
             assert hits[0].rrf_score > 1 / 61
             # Aucun terme anglais dans le corpus : seule la branche dense
             # peut proposer cette section ; BM25 ne doit pas inventer un hit.
             semantic = index.search("crossing")
-            assert semantic[0].chunk.book_page == 42
+            assert semantic[0].page.book_page == 42
             assert semantic[0].bm25_rank is None
             assert index.search("Quel dé pour attaquer un dragon ?") == []
 
@@ -62,6 +63,27 @@ def test_rrf_promotes_a_result_supported_by_both_rankings() -> None:
     assert scores["b"] == pytest.approx(2 / 62)
 
 
+def test_retrieval_selects_printed_page_inside_multileaf_section_without_llm(
+    tmp_path: Path,
+) -> None:
+    pdf = tmp_path / "demo.pdf"
+    make_demo_pdf(pdf)
+    first, second, *_ = ingest_route_a(pdf, probe(pdf))
+    section = first.model_copy(
+        update={
+            "text": first.text + "\n\n" + second.text,
+            "raw_text": first.raw_text + "\n\n" + second.raw_text,
+            "pages": first.pages + second.pages,
+        }
+    )
+    with open_index([section], tmp_path / "qdrant", SmallTestModels()) as index:
+        hit = index.search("Combien coûte un Pont de brume ?")[0]
+    assert hit.chunk.book_page == 41
+    assert hit.page.book_page == 42
+    assert hit.page.pdf_page == 2
+    assert "3 étincelles" in hit.page.text
+
+
 def test_ask_cli_from_pdf_to_cited_answer_and_refusal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -69,35 +91,30 @@ def test_ask_cli_from_pdf_to_cited_answer_and_refusal(
     pdf = tmp_path / "demo.pdf"
     make_demo_pdf(pdf)
     monkeypatch.setattr("rulelawyer.retrieval.BGEModels", SmallTestModels)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-only-not-a-secret")
     calls = []
 
-    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        sources = json.loads(kwargs["input"])["sources"]
-        source = next(s for s in sources if "3 étincelles" in s["text"])
-        calls.append(command)
-        return subprocess.CompletedProcess(
-            command,
-            0,
+    def request(req: Request, **kwargs: Any) -> io.BytesIO:
+        assert isinstance(req.data, bytes)
+        payload = json.loads(req.data)
+        source = json.loads(payload["messages"][1]["content"])
+        assert "3 étincelles" in source["passage"]
+        calls.append(req)
+        content = json.dumps(
+            {
+                "established": True,
+                "answer": "Traverser un Pont de brume coûte exactement 3 étincelles.",
+            }
+        )
+        return io.BytesIO(
             json.dumps(
                 {
-                    "structured_output": {
-                        "found": True,
-                        "citations": [
-                            {
-                                "source_id": source["source_id"],
-                                "quote": (
-                                    "Traverser un Pont de brume coûte "
-                                    "exactement 3 étincelles."
-                                ),
-                            }
-                        ],
-                    },
+                    "choices": [{"message": {"content": content}}],
                 }
-            ),
-            "",
+            ).encode()
         )
 
-    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr("rulelawyer.answer.urlopen", request)
     runner = CliRunner()
     options = ["--cache-dir", str(tmp_path / "index")]
     result = runner.invoke(
@@ -110,4 +127,11 @@ def test_ask_cli_from_pdf_to_cited_answer_and_refusal(
     )
     assert refusal.exit_code == 0, refusal.output
     assert "Ce n'est pas dans le manuel." in refusal.output
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    missing_key = runner.invoke(
+        app, ["ask", str(pdf), "Combien coûte un Pont de brume ?", *options, "--debug"]
+    )
+    assert missing_key.exit_code == 1
+    assert "book_page=42" in missing_key.output
+    assert "OPENROUTER_API_KEY absente" in missing_key.output
     assert len(calls) == 1

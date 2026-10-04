@@ -14,11 +14,13 @@ from rulelawyer.probe import (
     Line,
     PageContent,
     analyze_columns,
+    apply_toc_page_map,
     detect_boilerplate,
     detect_page_map,
     find_toc,
     measure_text_quality,
     normalize_line,
+    page_map_from_toc,
     shadow_char_filter,
 )
 
@@ -333,6 +335,149 @@ def test_find_toc_ignores_boilerplate_lines() -> None:
     report = find_toc(pages, boilerplate={normalize_line("Corp Layout Page 4")})
     assert report.pages == [0]
     assert all("Corp Layout" not in s for s in report.sample)
+
+
+# --- Repli de pagination par la TdM -----------------------------------------
+
+TOC_TITLES = [
+    "Création de personnage",
+    "Attributs et compétences",
+    "Résolution des actions",
+    "Combat rapproché",
+    "Combat à distance",
+    "Blessures et soins",
+    "Équipement standard",
+    "Armes et armures",
+]
+
+
+def book_with_toc(
+    located: list[tuple[str, int, int]],
+    *,
+    page_count: int = 40,
+    footer: str = "Corporation",
+) -> list[PageContent]:
+    """Livre sans folio. `located` = (titre, index PDF, page imprimée)."""
+    printed = {title: number for title, _index, number in located}
+    pairs = [(title, printed.get(title, 3 + i)) for i, title in enumerate(TOC_TITLES)]
+    pages = [make_page(i, footer) for i in range(page_count)]
+    pages[0] = toc_page(0, [f"{title} ..... {number}" for title, number in pairs])
+    for title, index, _number in located:
+        pages[index].lines.append(
+            Line(text=title, x0=50, x1=400, top=220.0, bottom=232.0)
+        )
+    return pages
+
+
+def _masks(pages: list[PageContent]) -> set[str]:
+    return {pattern.masked for pattern in detect_boilerplate(pages).patterns}
+
+
+def test_page_map_infers_offset_from_toc_titles() -> None:
+    """Sans folio, trois titres retrouvés votent un seul décalage.
+
+    book_page = pdf_index - offset, avec offset = 22 - 24 = -2. Le liminaire
+    d'avant le premier titre retrouvé n'est pas interpolé.
+    """
+    pages = book_with_toc(
+        [
+            ("Création de personnage", 22, 24),
+            ("Combat à distance", 28, 30),
+            ("Armes et armures", 34, 36),
+        ]
+    )
+    # Le titre peut ouvrir une ligne plus longue : on ne cherche pas l'égalité seule.
+    for line in pages[22].lines:
+        if line.text == "Création de personnage":
+            line.text = "Création de personnage - on y définit l'agent"
+
+    assert detect_page_map(pages).method is PageMapMethod.IDENTITY
+    report = page_map_from_toc(pages, _masks(pages))
+
+    assert report is not None
+    assert report.method is PageMapMethod.TOC
+    assert report.source is PageNumberSource.NONE
+    assert report.measured_pages == 3
+    assert report.confidence == min(0.5, 3 / len(pages))
+    assert report.runs[0].page_offset == -2
+    assert report.runs[0].pdf_start == 22
+    assert report.runs[0].pdf_end == 34
+    assert report.book_page(22) == 24
+    assert report.book_page(28) == 30
+    assert report.book_page(30) == 32  # dans la plage, entre deux hits
+    assert report.book_page(21) is None
+    assert report.book_page(0) is None
+    assert report.book_page(35) is None
+    assert report.uniform_offset is None
+    assert any("table des matières" in note for note in report.notes)
+    assert any("indexer" in note for note in report.notes)
+
+
+def test_page_map_keeps_identity_when_toc_offsets_disagree() -> None:
+    """Trois voix pour -2, une voix contraire : on ne départage pas."""
+    pages = book_with_toc(
+        [
+            ("Création de personnage", 22, 24),
+            ("Combat à distance", 28, 30),
+            ("Armes et armures", 34, 36),
+            ("Équipement standard", 31, 20),
+        ]
+    )
+    masks = _masks(pages)
+
+    assert page_map_from_toc(pages, masks) is None
+    report = apply_toc_page_map(pages, detect_page_map(pages), masks)
+    assert report.method is PageMapMethod.IDENTITY
+    assert report.book_page(22) == 23
+
+
+def test_toc_fallback_does_not_override_standalone_folios() -> None:
+    """Le folio déjà mesuré reste la source, même si la TdM voterait autre chose."""
+    pages = [folio_page(i, i + 4) for i in range(40)]
+    pairs = [
+        ("Création de personnage", 30),
+        ("Attributs et compétences", 32),
+        ("Résolution des actions", 4),
+        ("Combat rapproché", 5),
+        ("Combat à distance", 6),
+        ("Blessures et soins", 7),
+        ("Équipement standard", 8),
+        ("Armes et armures", 34),
+    ]
+    pages[1].lines.extend(
+        Line(
+            text=f"{title} ..... {number}",
+            x0=50,
+            x1=400,
+            top=120.0 + 14 * i,
+            bottom=132.0 + 14 * i,
+        )
+        for i, (title, number) in enumerate(pairs)
+    )
+    # Trois titres cohérents entre eux (offset -8), pas avec le folio (offset -4).
+    placements = {
+        22: "Création de personnage",
+        24: "Attributs et compétences",
+        26: "Armes et armures",
+    }
+    for index, title in placements.items():
+        pages[index].lines.append(
+            Line(text=title, x0=50, x1=400, top=220.0, bottom=232.0)
+        )
+
+    masks = _masks(pages)
+    detected = detect_page_map(pages)
+    report = apply_toc_page_map(pages, detected, masks)
+    suggested = page_map_from_toc(pages, masks)
+
+    assert report.method is PageMapMethod.PRINTED
+    assert report.source is PageNumberSource.STANDALONE
+    assert report.book_page(10) == 14
+    assert report.book_page(22) == 26
+    assert suggested is not None
+    assert suggested.method is PageMapMethod.TOC
+    assert suggested.book_page(22) == 30
+    assert suggested.book_page(22) != report.book_page(22)
 
 
 # --- Qualité de la couche texte ---------------------------------------------

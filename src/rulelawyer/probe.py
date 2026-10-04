@@ -12,7 +12,9 @@ Contraintes de conception :
   le rapport CLI et dans le JSON.
 - **Ordre imposé** : on lit les numéros de page imprimés *avant* de retirer le
   boilerplate, parce que sur beaucoup de livres le numéro vit *dans* la ligne
-  de boilerplate.
+  de boilerplate. Le repli par la table des matières a besoin de ces masques :
+  il ne court qu'ensuite, et seulement quand le folio et l'imposition n'ont
+  rien mesuré.
 """
 
 from __future__ import annotations
@@ -806,6 +808,49 @@ def analyze_images(pages: list[PageContent]) -> ImagesReport:
 # --- 7. Table des matières textuelle ----------------------------------------
 
 
+def _toc_entries(
+    pages: list[PageContent], boilerplate: set[str]
+) -> list[tuple[int, list[tuple[str, int]]]]:
+    """Pages de TdM et leurs paires (titre brut, page imprimée).
+
+    Même regex, mêmes seuils (`TOC_MIN_PAIRS`, `TOC_MIN_DENSITY`) et même
+    fenêtre que `find_toc`. Une page sous le seuil n'est pas une table des
+    matières — une table d'équipement, par exemple.
+    """
+    window = max(20, int(len(pages) * TOC_SEARCH_FRACTION))
+    page_count = len(pages)
+    accepted: list[tuple[int, list[tuple[str, int]]]] = []
+
+    for page in pages[:window]:
+        body = [
+            line for line in page.lines if normalize_line(line.text) not in boilerplate
+        ]
+        if not body:
+            continue
+
+        pairs: list[tuple[str, int]] = []
+        lines_with_pair = 0
+        for line in body:
+            found = [
+                (match.group("title").strip(), int(match.group("page")))
+                for match in _TOC_PAIR.finditer(line.text)
+            ]
+            found = [
+                (title, number)
+                for title, number in found
+                if len(title) >= 4 and 0 < number <= page_count
+            ]
+            if found:
+                lines_with_pair += 1
+                pairs.extend(found)
+
+        density = lines_with_pair / len(body)
+        if len(pairs) >= TOC_MIN_PAIRS and density >= TOC_MIN_DENSITY:
+            accepted.append((page.index, pairs))
+
+    return accepted
+
+
 def find_toc(pages: list[PageContent], boilerplate: set[str]) -> TocReport:
     """Repère les pages de table des matières textuelle.
 
@@ -820,37 +865,126 @@ def find_toc(pages: list[PageContent], boilerplate: set[str]) -> TocReport:
       au liminaire.
     """
     report = TocReport()
-    window = max(20, int(len(pages) * TOC_SEARCH_FRACTION))
-
-    for page in pages[:window]:
-        body = [
-            line for line in page.lines if normalize_line(line.text) not in boilerplate
-        ]
-        if not body:
-            continue
-
-        pairs: list[tuple[str, int]] = []
-        lines_with_pair = 0
-        for line in body:
-            found = [
-                (m.group("title").strip(), int(m.group("page")))
-                for m in _TOC_PAIR.finditer(line.text)
-            ]
-            found = [(t, n) for t, n in found if len(t) >= 4 and 0 < n <= len(pages)]
-            if found:
-                lines_with_pair += 1
-                pairs.extend(found)
-
-        density = lines_with_pair / len(body)
-        if len(pairs) >= TOC_MIN_PAIRS and density >= TOC_MIN_DENSITY:
-            report.pages.append(page.index)
-            report.entry_count += len(pairs)
-            for title, number in pairs:
-                if len(report.sample) >= 6:
-                    break
-                report.sample.append(f"{title} … {number}")
+    for index, pairs in _toc_entries(pages, boilerplate):
+        report.pages.append(index)
+        report.entry_count += len(pairs)
+        for title, number in pairs:
+            if len(report.sample) >= 6:
+                break
+            report.sample.append(f"{title} … {number}")
 
     return report
+
+
+def _title_on_page(page: PageContent, title: str) -> bool:
+    """La ligne égale le titre, ou le commence s'il fait au moins 8 caractères."""
+    for line in page.lines:
+        normalized = normalize_line(line.text)
+        if normalized == title or (len(title) >= 8 and normalized.startswith(title)):
+            return True
+    return False
+
+
+def page_map_from_toc(
+    pages: list[PageContent], boilerplate_masks: set[str]
+) -> PageMapReport | None:
+    """Déduit un décalage des titres de TdM retrouvés plus loin, ou `None`.
+
+    On ne devine jamais l'offset depuis l'index de la page de TdM. Toutes les
+    voix retenues doivent tomber sur le même décalage ; sinon on refuse et
+    l'appelant garde l'identité. Le liminaire situé avant le premier titre
+    retrouvé n'est pas interpolé.
+    """
+    page_count = len(pages)
+    if page_count == 0:
+        return None
+
+    entries = _toc_entries(pages, boilerplate_masks)
+    if not entries:
+        return None
+
+    window = max(20, int(page_count * TOC_SEARCH_FRACTION))
+    # (index PDF où le titre a été retrouvé, page imprimée annoncée)
+    hits: list[tuple[int, int]] = []
+    for toc_index, pairs in entries:
+        for raw_title, printed in pairs:
+            if not 1 <= printed <= page_count:
+                continue
+            title = normalize_line(raw_title)
+            if len(title) < 4:
+                continue
+            located: int | None = None
+            for page in pages[window:]:
+                if page.index <= toc_index:
+                    continue
+                if _title_on_page(page, title):
+                    located = page.index
+                    break
+            if located is None:
+                continue
+            hits.append((located, printed))
+
+    if len(hits) < 3:
+        return None
+
+    offsets = {pdf_index - printed for pdf_index, printed in hits}
+    if len(offsets) != 1:
+        return None
+    offset = offsets.pop()
+
+    ordered = sorted(hits, key=lambda hit: hit[0])
+    if any(
+        earlier[0] >= later[0] or earlier[1] >= later[1]
+        for earlier, later in pairwise(ordered)
+    ):
+        return None
+
+    first, last = ordered[0][0], ordered[-1][0]
+    # Page imprimée positive sur toute la plage retenue, pas seulement les hits.
+    if any(index - offset < 1 for index in range(first, last + 1)):
+        return None
+
+    matched = len(hits)
+    covered = last - first + 1
+    notes = [
+        (
+            f"Décalage {offset} déduit de {matched} titres situés après la table "
+            f"des matières (pdf {first}–{last}). Mesure indirecte : à vérifier "
+            "avant d'indexer."
+        )
+    ]
+    outside = page_count - covered
+    if outside:
+        notes.append(
+            f"{outside} page(s) restent hors de la plage déduite, dont le liminaire "
+            "avant le premier titre retrouvé. `book_page()` y renvoie None plutôt "
+            "qu'un numéro plausible."
+        )
+
+    return PageMapReport(
+        method=PageMapMethod.TOC,
+        source=PageNumberSource.NONE,
+        confidence=min(0.5, matched / page_count),
+        monotonic=True,
+        runs=[OffsetRun(pdf_start=first, pdf_end=last, page_offset=offset)],
+        measured_pages=matched,
+        uniform_offset=offset if covered >= 0.9 * page_count else None,
+        notes=notes,
+    )
+
+
+def apply_toc_page_map(
+    pages: list[PageContent],
+    detected: PageMapReport,
+    boilerplate_masks: set[str],
+) -> PageMapReport:
+    """N'applique le repli TdM que si le mapping serait IDENTITY.
+
+    Un folio ou une imposition déjà mesurés ne se font pas remplacer.
+    """
+    if detected.method is not PageMapMethod.IDENTITY:
+        return detected
+    return page_map_from_toc(pages, boilerplate_masks) or detected
 
 
 # --- Routage -----------------------------------------------------------------
@@ -947,11 +1081,15 @@ def probe(path: Path) -> ProbeReport:
     text_layer = analyze_text_layer(pages, _embedded_fonts(reader))
     outline = analyze_outline(reader, len(pages))
     # Ordre imposé : le numéro imprimé se lit AVANT tout retrait de boilerplate.
+    # Le repli TdM a besoin des masques, donc il vient après — et seulement si
+    # le folio et l'imposition n'ont rien donné.
     page_map = detect_page_map(pages)
     boilerplate = detect_boilerplate(pages)
-    columns = analyze_columns(pages, {p.masked for p in boilerplate.patterns})
+    boilerplate_masks = {p.masked for p in boilerplate.patterns}
+    page_map = apply_toc_page_map(pages, page_map, boilerplate_masks)
+    columns = analyze_columns(pages, boilerplate_masks)
     images = analyze_images(pages)
-    toc = find_toc(pages, {p.masked for p in boilerplate.patterns})
+    toc = find_toc(pages, boilerplate_masks)
 
     route, rationale, cost = choose_route(text_layer, outline, images)
     meta = reader.metadata

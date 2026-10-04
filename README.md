@@ -106,6 +106,16 @@ Et une page dont le folio n'a pas pu être lu ne reçoit pas de numéro plausibl
 décalage identique des deux côtés sont interpolées, et le rapport distingue
 alors ce qui est mesuré de ce qui est déduit.
 
+Sans folio ni imposition, on tente la table des matières textuelle. Chaque
+titre retrouvé plus loin dans le livre vote un décalage (`pdf_index − page
+imprimée`). On n'accepte que si au moins trois voix concordent, dans l'ordre,
+sur un offset qui laisse une page imprimée positive. La plage va du premier
+titre retrouvé au dernier : le liminaire d'avant n'est pas interpolé. C'est
+une mesure indirecte (confiance plafonnée à 50 %), à vérifier avant d'indexer,
+et elle ne remplace jamais un folio ou une imposition déjà lus. À défaut de
+concordance, on ne devine pas depuis la page de la table : on reste sur
+l'identité.
+
 ### On chunke par section, jamais par fenêtre de tokens
 
 Un stat block coupé en deux est inexploitable en retrieval. L'unité de base est
@@ -246,10 +256,10 @@ clé. Les profils et
 - [x] Socle du probe et CLI : analyse de la couche texte, de l'outline,
   des colonnes, du boilerplate, des folios, des images et de la table des
   matières ; recommandation de route et rapport JSON.
-- [ ] Terminer la phase 1 : repli du mapping de pagination via la table des
-  matières lorsque les folios manquent ; validation sur d'autres PDF réels,
-  notamment sans outline et scannés. Aucune fixture redistribuable n'est
-  encore ajoutée dans `fixtures/`.
+- [x] Repli du mapping de pagination via la table des matières lorsque les
+  folios manquent.
+- [ ] Validation sur d'autres PDF réels, notamment sans outline et scannés.
+  Aucune fixture redistribuable n'est encore ajoutée dans `fixtures/`.
 - [x] Route A minimale : extraction depuis l'outline, chunks par section et
   provenance page par page ; PDF synthétique généré hors dépôt.
 - [ ] Profils : chargement YAML, matching, surcharges et `profile init`.
@@ -259,7 +269,7 @@ clé. Les profils et
 - [ ] Évaluation étendue sur des manuels, REPL et intégration SDK Anthropic.
 - [ ] Route B, serveur MCP, Space Hugging Face, Routes C et D.
 
-Les tests synthétiques vérifient notamment la pagination différente du PDF,
+Les tests synthétiques vérifient notamment la pagination différente du PDF, le repli par la table des matières,
 les sections multifeuilles, le retrieval et la réouverture de Qdrant, le refus
 hors livre, l'arrêt avant réseau sans clé et le rejet de citations inventées.
 Les modèles et le transport OpenRouter sont doublés dans les tests automatisés.
@@ -275,4 +285,4 @@ uv run --group test-index pytest -q
 ```
 
 Le groupe `test-index` permet de tester Qdrant et BM25 en CI sans installer
-torch. La CI multi-OS reste à exécuter pour ces changements locaux.
+torch. La CI multi-OS rejoue ces vérifications à chaque push sur `main`.

@@ -15,6 +15,8 @@ Règles appliquées :
    le fichier.
 4. Aucun artefact d'ingestion (.jsonl, chunks/, qdrant_storage/) : c'est un
    dérivé de l'œuvre, il ne se partage pas plus que le PDF.
+5. Aucun fichier local de secrets ou de cles privees. Ce controle de noms ne
+   remplace pas un scan du contenu et de l'historique avec Gitleaks.
 
 Le script ne dépend que de la stdlib : il doit tourner avant toute install.
 """
@@ -31,6 +33,22 @@ MAX_BYTES = 1024 * 1024
 BOOK_SUFFIXES = {".pdf", ".epub", ".mobi", ".cbz", ".cbr", ".djvu"}
 DERIVED_SUFFIXES = {".jsonl"}
 DERIVED_DIRS = ("chunks/", "qdrant_storage/", ".cache/", "data/", "books/")
+SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
+SECRET_NAMES = {
+    ".env",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "credentials.json",
+    "secrets.json",
+    "secrets.yaml",
+    "secrets.yml",
+}
+SECRET_DIRS = {".aws", ".ssh"}
 
 FIXTURE_ROOT = "fixtures/"
 SOURCES_RELPATH = "fixtures/SOURCES.md"
@@ -91,6 +109,19 @@ def check(paths: list[str], *, staged: bool) -> list[str]:
 
     for path in paths:
         suffix = Path(path).suffix.lower()
+        name = Path(path).name.lower()
+
+        if (
+            name in SECRET_NAMES
+            or name.startswith(".env.")
+            or suffix in SECRET_SUFFIXES
+            or SECRET_DIRS.intersection(part.lower() for part in Path(path).parts[:-1])
+        ):
+            problems.append(
+                f"{path} : fichier de secrets ou de cles privees interdit. "
+                "Conserve les identifiants hors du depot."
+            )
+            continue
 
         if suffix in BOOK_SUFFIXES:
             if not path.startswith(FIXTURE_ROOT):

@@ -65,6 +65,33 @@ def test_guard_accepts_ordinary_source() -> None:
     assert check(["src/rulelawyer/probe.py", "README.md"], staged=False) == []
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".env",
+        "config/.env.production",
+        "config/private.pem",
+        "config/private.KEY",
+        "config/client.p12",
+        "config/client.pfx",
+        "config/id_ed25519",
+        "config/.aws/credentials",
+        "config/.ssh/config",
+        ".netrc",
+        ".npmrc",
+        ".pypirc",
+        "config/credentials.json",
+        "config/secrets.yaml",
+    ],
+)
+def test_guard_refuses_secret_files(path: str) -> None:
+    from scripts.guard_repo import check
+
+    problems = check([path], staged=False)
+    assert problems and "secrets" in problems[0]
+    problems[0].encode("ascii")
+
+
 def test_guard_messages_are_pure_ascii() -> None:
     """Le hook doit pouvoir parler sur une console cp850 ou cp1252.
 

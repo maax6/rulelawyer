@@ -57,8 +57,8 @@ mcp = [
 rulelawyer = "rulelawyer.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/m4ks/rulelawyer"
-Issues = "https://github.com/m4ks/rulelawyer/issues"
+Homepage = "https://github.com/maax6/rulelawyer"
+Issues = "https://github.com/maax6/rulelawyer/issues"
 
 [dependency-groups]
 dev = [

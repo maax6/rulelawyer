@@ -35,6 +35,27 @@ dist/
 .mypy_cache/
 uv.lock.bak
 
+# Secrets et identifiants locaux (meme dans les sous-dossiers)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+.aws/
+.ssh/
+.netrc
+.npmrc
+.pypirc
+credentials.json
+secrets.json
+secrets.yaml
+secrets.yml
+
 # OS / éditeurs
 .DS_Store
 .idea/

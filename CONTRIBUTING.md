@@ -39,12 +39,17 @@ notes: "Les tables de véhicules p.57 sortent mieux en mode -layout."
 - Un index, un `chunks.jsonl`, un dossier `qdrant_storage/` — ce sont des
   dérivés de l'œuvre.
 - Tout fichier de plus de 1 Mio.
+- Un fichier de secrets (`.env`, `.env.*`, identifiants cloud, cles privees).
 
 Le hook pre-commit et la CI refusent ces fichiers. Activez le hook une fois :
 
 ```bash
 git config core.hooksPath .githooks
 ```
+
+Ce garde-fou controle les noms de fichiers, pas les secrets integres au code.
+Avant publication, scannez aussi tout l'historique avec
+`gitleaks git --redact --log-opts="--all" .`.
 
 Les seules fixtures acceptées sont redistribuables (OGL, Creative Commons) et
 déclarées dans [`fixtures/SOURCES.md`](fixtures/SOURCES.md).

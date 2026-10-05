@@ -91,7 +91,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src", "tests", "scripts"]
+files = ["src", "tests", "scripts", "eval"]
 
 [[tool.mypy.overrides]]
 module = ["pdfplumber.*", "reportlab.*", "FlagEmbedding.*", "bm25s.*", "qdrant_client.*"]

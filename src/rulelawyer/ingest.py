@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import unicodedata
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from rulelawyer.chunking import DEFAULT_MAX_TOKENS, split_section
+from rulelawyer.ingest_types import ChunkPage as ChunkPage
 from rulelawyer.models import (
     PageMapMethod,
     PageNumberSource,
@@ -16,12 +19,6 @@ from rulelawyer.models import (
     Route,
 )
 from rulelawyer.probe import ZONE_FRACTION, normalize_line, read_pages
-
-
-class ChunkPage(BaseModel):
-    pdf_page: int = Field(ge=1, description="Numéro PDF, 1-based ; jamais une citation")
-    book_page: int | None
-    text: str
 
 
 class Chunk(BaseModel):
@@ -42,7 +39,9 @@ def _title_key(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
 
 
-def ingest_route_a(pdf: Path, report: ProbeReport) -> list[Chunk]:
+def ingest_route_a(
+    pdf: Path, report: ProbeReport, *, max_tokens: int = DEFAULT_MAX_TOKENS
+) -> list[Chunk]:
     """Consomme le diagnostic ; refuse les destinations ambiguës sans deviner.
 
     Une feuille peut traverser plusieurs pages. Le texte propre d'un parent
@@ -59,15 +58,17 @@ def ingest_route_a(pdf: Path, report: ProbeReport) -> list[Chunk]:
     with pdf.open("rb") as handle:
         if hashlib.file_digest(handle, "sha256").hexdigest() != report.file_sha256:
             raise ValueError("Le PDF a changé depuis le probe.")
-    pages, errors = read_pages(pdf)
+    pages, errors = read_pages(pdf, text_flow=report.reading_order == "text_flow")
     if errors:
         raise ValueError(f"Échec d'extraction : {errors}")
     boilerplate = {p.masked for p in report.boilerplate.patterns}
+    patterns = [re.compile(pattern) for pattern in report.profile_boilerplate_patterns]
     lines = [
         [
             line.text
             for line in page.lines
             if normalize_line(line.text) not in boilerplate
+            and not any(pattern.search(line.text) for pattern in patterns)
             and not (
                 report.page_map.source is PageNumberSource.STANDALONE
                 and line.text == str(report.page_map.book_page(page.index))
@@ -93,11 +94,17 @@ def ingest_route_a(pdf: Path, report: ProbeReport) -> list[Chunk]:
             raise ValueError(f"Hiérarchie d'outline invalide : {entry.title}")
         stack = [*stack[: entry.level - 1], entry.title]
         paths.append(" > ".join(stack))
+        heading = report.profile_heading_overrides.get(entry.title)
+        title = heading.text if heading is not None else entry.title
         matches = [
             n
             for n, line in enumerate(lines[page_index])
-            if _title_key(line) == _title_key(entry.title)
+            if _title_key(line) == _title_key(title)
         ]
+        if heading is not None:
+            if len(matches) < heading.occurrence:
+                raise ValueError(f"Ancre de profil introuvable : {entry.title}")
+            matches = [matches[heading.occurrence - 1]]
         if len(matches) > 1:
             raise ValueError(
                 f"Titre ambigu sur la page PDF {page_index + 1} : {entry.title}"
@@ -122,15 +129,25 @@ def ingest_route_a(pdf: Path, report: ProbeReport) -> list[Chunk]:
                 raise ValueError(f"Frontière de section introuvable : {entry.title}")
             line_index = 0
         anchor = (page_index, line_index)
-        if anchors and anchor < anchors[-1]:
-            raise ValueError(
-                "Les destinations de l'outline ne suivent pas l'ordre du texte."
-            )
         anchors.append(anchor)
 
+    # Certains PDF classent les signets par thème plutôt que par page.
+    # Les chemins viennent de la hiérarchie ; les bornes suivent les ancres.
+    ordered = sorted(range(len(entries)), key=lambda i: (anchors[i], i))
     chunks: list[Chunk] = []
-    for i, (start_page, start_line) in enumerate(anchors):
-        end_page, end_line = anchors[i + 1] if i + 1 < len(anchors) else (len(pages), 0)
+    for position, i in enumerate(ordered):
+        start_page, start_line = anchors[i]
+        end_page, end_line = (
+            anchors[ordered[position + 1]]
+            if position + 1 < len(ordered)
+            else (len(pages), 0)
+        )
+        if any(
+            _title_key(part)
+            in {_title_key(name) for name in report.profile_drop_sections}
+            for part in paths[i].split(" > ")
+        ):
+            continue
         content: list[ChunkPage] = []
         for page_index in range(start_page, min(end_page + 1, len(pages))):
             first = start_line if page_index == start_page else 0
@@ -139,7 +156,12 @@ def ingest_route_a(pdf: Path, report: ProbeReport) -> list[Chunk]:
             if (
                 page_index == start_page
                 and selected
-                and _title_key(selected[0]) == _title_key(entries[i].title)
+                and _title_key(selected[0])
+                == _title_key(
+                    report.profile_heading_overrides[entries[i].title].text
+                    if entries[i].title in report.profile_heading_overrides
+                    else entries[i].title
+                )
             ):
                 selected = selected[1:]
             text = "\n".join(selected).strip()
@@ -159,24 +181,30 @@ def ingest_route_a(pdf: Path, report: ProbeReport) -> list[Chunk]:
             )
         if not content:
             continue
-        raw_text = "\n\n".join(p.text for p in content)
         section_path = paths[i]
-        chunk_id = hashlib.sha256(
-            f"{report.file_sha256}:{i}:{raw_text}".encode()
-        ).hexdigest()
-        chunks.append(
-            Chunk(
-                id=chunk_id,
-                book_id=report.file_sha256,
-                section_path=section_path,
-                text=f"{section_path}\n\n{raw_text}",
-                raw_text=raw_text,
-                book_page=content[0].book_page,
-                pdf_page=content[0].pdf_page,
-                pages=content,
-                route=Route.A,
+        for part, segment in enumerate(
+            split_section(content, section_path, max_tokens=max_tokens)
+        ):
+            raw_text = "\n\n".join(p.text for p in segment)
+            chunk_id = hashlib.sha256(
+                f"{report.file_sha256}:{i}:{part}:{raw_text}".encode()
+            ).hexdigest()
+            chunks.append(
+                Chunk(
+                    id=chunk_id,
+                    book_id=report.profile_id or report.file_sha256,
+                    section_path=section_path,
+                    text=f"{section_path}\n\n{raw_text}",
+                    raw_text=raw_text,
+                    book_page=segment[0].book_page,
+                    pdf_page=segment[0].pdf_page,
+                    pages=segment,
+                    type="table"
+                    if any(p.book_page in report.profile_table_pages for p in segment)
+                    else "rules",
+                    route=Route.A,
+                )
             )
-        )
     if not chunks:
         raise ValueError("Aucune section textuelle extraite.")
     return chunks

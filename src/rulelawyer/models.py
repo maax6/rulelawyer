@@ -7,8 +7,9 @@ d'ingestion. Tout le reste du pipeline le consomme, personne ne re-diagnostique.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Route(StrEnum):
@@ -197,6 +198,15 @@ class TocReport(BaseModel):
     sample: list[str] = Field(default_factory=list)
 
 
+class HeadingAnchor(BaseModel):
+    """Titre exact et occurrence fournis par l'utilisateur, jamais devinés."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+    occurrence: int = Field(default=1, ge=1)
+
+
 class ProbeReport(BaseModel):
     pdf_path: str
     file_sha256: str
@@ -224,4 +234,10 @@ class ProbeReport(BaseModel):
     route_rationale: list[str] = Field(default_factory=list)
     estimated_cost: str = ""
     matched_profile: str | None = None
+    profile_id: str | None = None
+    reading_order: Literal["text_flow", "position"] = "text_flow"
+    profile_drop_sections: list[str] = Field(default_factory=list)
+    profile_boilerplate_patterns: list[str] = Field(default_factory=list)
+    profile_table_pages: list[int] = Field(default_factory=list)
+    profile_heading_overrides: dict[str, HeadingAnchor] = Field(default_factory=dict)
     errors: list[PageError] = Field(default_factory=list)

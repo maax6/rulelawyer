@@ -233,7 +233,9 @@ def _image_size(raw: dict[str, Any]) -> tuple[int, int]:
     return int(abs(float(raw.get("width", 0)))), int(abs(float(raw.get("height", 0))))
 
 
-def read_pages(path: Path) -> tuple[list[PageContent], list[PageError]]:
+def read_pages(
+    path: Path, *, text_flow: bool = False
+) -> tuple[list[PageContent], list[PageError]]:
     """Une seule passe pdfplumber. Tout le reste travaille sur cette structure."""
     pages: list[PageContent] = []
     errors: list[PageError] = []
@@ -248,7 +250,9 @@ def read_pages(path: Path) -> tuple[list[PageContent], list[PageError]]:
             try:
                 deduped = page.filter(shadow_char_filter())
                 chars = deduped.chars
-                for raw in deduped.extract_text_lines(layout=False):
+                for raw in deduped.extract_text_lines(
+                    layout=False, use_text_flow=text_flow
+                ):
                     line = _line_from_dict(raw)
                     if line is not None:
                         content.lines.append(line)
@@ -1074,7 +1078,13 @@ def _embedded_fonts(reader: PdfReader) -> set[str]:
     return found
 
 
-def probe(path: Path) -> ProbeReport:
+def probe(
+    path: Path,
+    *,
+    profiles_dir: Path | None = Path("profiles"),
+    profile_path: Path | None = None,
+    route: Route | None = None,
+) -> ProbeReport:
     reader = PdfReader(str(path))
     pages, errors = read_pages(path)
 
@@ -1091,7 +1101,9 @@ def probe(path: Path) -> ProbeReport:
     images = analyze_images(pages)
     toc = find_toc(pages, boilerplate_masks)
 
-    route, rationale, cost = choose_route(text_layer, outline, images)
+    recommended, rationale, cost = choose_route(text_layer, outline, images)
+    if recommended is Route.A:
+        rationale.append("Extraction Route A : ordre du flux texte du PDF (text_flow).")
     meta = reader.metadata
 
     # Empreinte pour la clé `match` d'un profil. On saute les pages sans texte :
@@ -1099,7 +1111,7 @@ def probe(path: Path) -> ProbeReport:
     # texte revient à hacher la chaîne vide — une empreinte qui collerait alors à
     # tous les livres du monde.
     fingerprint_page = next((p for p in pages if len(p.text.strip()) >= 200), None)
-    return ProbeReport(
+    report = ProbeReport(
         pdf_path=str(path),
         file_sha256=_sha256(path),
         page_count=len(pages),
@@ -1120,8 +1132,16 @@ def probe(path: Path) -> ProbeReport:
         page_map=page_map,
         images=images,
         toc=toc,
-        recommended_route=route,
+        recommended_route=recommended,
         route_rationale=rationale,
         estimated_cost=cost,
         errors=errors,
     )
+    from rulelawyer.profiles import apply_profile
+
+    report = apply_profile(report, directory=profiles_dir, explicit=profile_path)
+    if route is not None:
+        report.recommended_route = route
+        report.route_rationale.append(f"Route imposee par --route {route.value}.")
+        report.estimated_cost = "Route imposee par l'utilisateur ; cout a verifier."
+    return report

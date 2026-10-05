@@ -235,6 +235,7 @@ def render(report: ProbeReport, console: Console) -> None:
         Panel(
             Group(
                 Text(_ROUTE_LABEL[report.recommended_route], style="bold green"),
+                Text(f"Profil : {report.matched_profile or 'aucun'}", style="dim"),
                 Text(report.estimated_cost, style="cyan"),
                 Text(""),
                 Text("\n".join(f"· {r}" for r in report.route_rationale)),

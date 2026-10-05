@@ -69,3 +69,57 @@ def test_ingestion_obeys_probe_and_never_promotes_pdf_fallback_to_printed_page(
     report.recommended_route = Route.B
     with pytest.raises(ValueError, match="Route B"):
         ingest_route_a(pdf, report)
+
+
+def test_out_of_order_bookmarks_keep_hierarchy_but_follow_pdf_pages(
+    tmp_path: Path,
+) -> None:
+    original = tmp_path / "original.pdf"
+    make_demo_pdf(original)
+    writer = PdfWriter()
+    for page in PdfReader(original).pages:
+        writer.add_page(page)
+    root = writer.add_outline_item("Manuel des Veilleurs", 0)
+    for title, index in [
+        ("Lexique", 3),
+        ("Pont de brume", 1),
+        ("Repos de cristal", 2),
+        ("Présentation", 0),
+    ]:
+        writer.add_outline_item(title, index, parent=root)
+    pdf = tmp_path / "reordered.pdf"
+    writer.write(pdf)
+    chunks = ingest_route_a(pdf, probe(pdf))
+    assert [c.book_page for c in chunks] == [41, 42, 43, 44]
+    assert all(c.section_path.startswith("Manuel des Veilleurs > ") for c in chunks)
+    assert "3 étincelles" in chunks[1].raw_text
+    assert "7 minutes" not in chunks[1].raw_text
+
+
+def test_two_columns_do_not_merge_sibling_rules(tmp_path: Path) -> None:
+    from reportlab.pdfgen.canvas import Canvas
+
+    pdf = tmp_path / "columns.pdf"
+    canvas = Canvas(str(pdf), pagesize=(595, 842))
+    canvas.bookmarkPage("manual")
+    canvas.addOutlineEntry("Manual", "manual", level=0)
+    for title, key, x, text in [
+        ("LEFT RULE", "left", 40, "Left rule costs three sparks."),
+        ("RIGHT RULE", "right", 315, "Right rule restores two sparks."),
+    ]:
+        canvas.bookmarkPage(key)
+        canvas.addOutlineEntry(title, key, level=1)
+        canvas.drawString(x, 700, title)
+        for i in range(5):
+            canvas.drawString(x, 675 - i * 20, text)
+    canvas.drawString(290, 35, "51")
+    canvas.save()
+    chunks = ingest_route_a(pdf, probe(pdf))
+    left = next(c for c in chunks if c.section_path.endswith("LEFT RULE"))
+    right = next(c for c in chunks if c.section_path.endswith("RIGHT RULE"))
+    assert "Left rule costs three sparks." in left.raw_text
+    assert "Right rule" not in left.raw_text
+    assert "Right rule restores two sparks." in right.raw_text
+    assert "Left rule" not in right.raw_text
+    # Un folio isolé sur un PDF d'une page ne suffit pas à mesurer un run.
+    assert left.book_page is None and right.book_page is None

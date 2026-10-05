@@ -1,0 +1,187 @@
+# Questions originales et pages imprimées, vérifiées dans le PDF local.
+# Aucun passage du manuel n'est distribué ici. Hash : édition exacte évaluée.
+book_name: Corporation RPG Core Rulebook (local reference PDF)
+file_sha256: 7bb816428e9b8bdf3f6c0820b9cd710318c9dbf753f9bb3d4ec1ac9ab806e507
+questions:
+  - id: f01
+    category: factual
+    question: "Comment calcule-t-on l'initiative au début d'un combat ?"
+    expected_pages: [142]
+    must_contain: [Reflexes, D10]
+    must_not_hallucinate: [D20]
+  - id: f02
+    category: factual
+    question: "How many seconds does a combat round last?"
+    expected_pages: [142]
+    must_contain: ['3', seconds]
+    must_not_hallucinate: ['6 seconds']
+  - id: f03
+    category: factual
+    question: "How many Free Actions may a character take per round?"
+    expected_pages: [145]
+    must_contain: [One, Free Action]
+    must_not_hallucinate: [unlimited]
+  - id: f04
+    category: factual
+    question: "Quel bonus à l'Action Total donne un point de Conviction ?"
+    expected_pages: [147]
+    must_contain: ['+4', Action Total]
+    must_not_hallucinate: ['+10']
+  - id: f05
+    category: factual
+    question: "What is the maximum number of Conviction Points a player should hold?"
+    expected_pages: [147]
+    must_contain: ['5', Conviction Points]
+    must_not_hallucinate: ['10 Conviction']
+  - id: f06
+    category: factual
+    question: "Combien de temps faut-il pour recharger chaque HP perdu d'un Hard Ion Shield ?"
+    expected_pages: [46]
+    must_contain: ['1 minute', HP]
+    must_not_hallucinate: ['1 second']
+  - id: f07
+    category: factual
+    question: "What percentage of an item's cost does a professional charge to fix equipment?"
+    expected_pages: [31]
+    must_contain: ['5%']
+    must_not_hallucinate: ['50%']
+  - id: f08
+    category: factual
+    question: "Combien de XP coûte l'achat d'un Training ?"
+    expected_pages: [79]
+    must_contain: ['10', Training]
+    must_not_hallucinate: ['100 XP']
+  - id: f09
+    category: factual
+    question: "Which pair of D10 results normally produces a critical success on an action roll?"
+    expected_pages: [139]
+    page_alternatives: {139: [144]}
+    must_contain: []
+    must_contain_any: [['1/1', '1 on both D10']]
+    must_not_hallucinate: ['20']
+  - id: f10
+    category: factual
+    question: "Combien de Hard Ion Shields un Agent peut-il avoir activés simultanément ?"
+    expected_pages: [46]
+    must_contain: [one, shield]
+    must_not_hallucinate: [unlimited]
+  - id: p01
+    category: procedural
+    question: "Explain how an Action Total roll succeeds or fails, including the dice used."
+    expected_pages: [138]
+    must_contain: [two, D10, ACTION TOTAL]
+    must_not_hallucinate: [D20]
+  - id: p02
+    category: procedural
+    question: "Que se passe-t-il sur un jet sans points dans la Skill requise, si le GM autorise la tentative ?"
+    expected_pages: [139]
+    must_contain: [doubles, critical failure]
+    must_not_hallucinate: [automatic success]
+  - id: p03
+    category: procedural
+    question: "How is a Sympathy Bonus calculated from a complementary skill?"
+    expected_pages: [139]
+    must_contain: [half, rounded down, Action Total]
+    must_not_hallucinate: [rounded up]
+  - id: p04
+    category: procedural
+    question: "Quel jet faut-il réussir pour toucher à distance une cible qui ne dodge pas ?"
+    expected_pages: [143]
+    must_contain: [Perception, weapon skill]
+    must_not_hallucinate: [D20]
+  - id: p05
+    category: procedural
+    question: "Explain how to resolve a close combat attack against a defending opponent."
+    expected_pages: [143]
+    must_contain: [Agility, Close Combat, penalty]
+    must_not_hallucinate: [Armour Class]
+  - id: p06
+    category: procedural
+    question: "Comment activer un pouvoir telepathic sous pression, avec dépense de TE et jet ?"
+    expected_pages: [73]
+    must_contain: [TE, 2D10, Intelligence, Endurance]
+    must_not_hallucinate: [spell slot]
+  - id: p07
+    category: procedural
+    question: "How does ordinary aiming improve attacks, and how many consecutive aiming actions are allowed?"
+    expected_pages: [145]
+    must_contain: ['+2', '3', '+6']
+    must_not_hallucinate: ['+20']
+  - id: p08
+    category: procedural
+    question: "Quels prérequis de licence et de Skills faut-il pour installer légalement des cybernetics ?"
+    expected_pages: [62]
+    must_contain: [Cyberneticists License, Cybernetics, Robotics, Medicine]
+    must_not_hallucinate: [no license]
+  - id: c01
+    category: cross_section
+    question: "Compare unskilled action-roll critical failures with the exceptions granted by the Aptitude Training."
+    expected_pages: [139, 21]
+    must_contain: [doubles, critical, D6]
+    must_not_hallucinate: [automatic success]
+  - id: c02
+    category: cross_section
+    question: "Que devient la Defence avec une arme à distance en close combat, et quels prérequis Gun Melee permettent de la conserver ?"
+    expected_pages: [143, 24]
+    must_contain: [Defence, '7', Agility, '6']
+    must_not_hallucinate: [Armour Class]
+  - id: c03
+    category: cross_section
+    question: "How do you get a broken Hard Ion Shield working again, combining the repair rules and the recharging rules?"
+    expected_pages: [46, 31]
+    must_contain: [fixed, '1 minute', Intelligence, Mechtronics]
+    must_not_hallucinate: [automatically repairs]
+  - id: c04
+    category: cross_section
+    question: "Comment répartir la Defence face à plusieurs attaquants et quels prérequis du Training Multiple Defence modifient cette règle ?"
+    expected_pages: [143, 24]
+    must_contain: [Defence, '8', Defensive Fighting]
+    must_not_hallucinate: [unlimited attacks]
+  - id: c05
+    category: cross_section
+    question: "Explain how armour stacking restrictions interact with Armour Value when resolving damage from an attack."
+    expected_pages: [45, 143]
+    must_contain: [Armour Value, damage, same]
+    must_not_hallucinate: [Armour Class]
+  - id: c06
+    category: cross_section
+    question: "Quels prérequis permettent d'obtenir la Cyberneticists License, et quelle pénalité s'applique si l'installateur manque des Skills nécessaires à l'opération ?"
+    expected_pages: [27, 62]
+    must_contain: [Cybernetics, Robotics, '6', Surgeon, '-5']
+    must_not_hallucinate: [unlimited]
+  - id: o01
+    category: out_of_book
+    question: "How many spell slots does a level-five Dungeons and Dragons wizard have?"
+    expected_pages: []
+    must_contain: []
+    must_not_hallucinate: [four spell slots, two third-level]
+  - id: o02
+    category: out_of_book
+    question: "Quel est le dé de dégâts du sort Fireball dans Pathfinder deuxième édition ?"
+    expected_pages: []
+    must_contain: []
+    must_not_hallucinate: [6d6, 8d6]
+  - id: o03
+    category: out_of_book
+    question: "Give the official advancement table for Skills above 10 from the forthcoming supplement."
+    expected_pages: []
+    must_contain: []
+    must_not_hallucinate: [11 costs, 12 costs]
+  - id: a01
+    category: ambiguous
+    question: "Combien ça coûte ?"
+    expected_pages: []
+    must_contain: ['?']
+    must_not_hallucinate: ['500 credits']
+  - id: a02
+    category: ambiguous
+    question: "What dice should I roll for my action?"
+    expected_pages: []
+    must_contain: ['?']
+    must_not_hallucinate: [always roll]
+  - id: a03
+    category: ambiguous
+    question: "Quel bonus me donne ce Training ?"
+    expected_pages: []
+    must_contain: ['?']
+    must_not_hallucinate: ['+4 to everything']

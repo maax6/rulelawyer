@@ -123,6 +123,15 @@ la feuille de l'arbre de sections ; on ne découpe plus finement qu'en dernier
 recours. Chaque chunk est préfixé de son `section_path` **dans le texte
 embeddé** — pas seulement en metadata.
 
+Une section trop grande est divisée aux sous-titres internes en majuscules,
+puis aux paragraphes et phrases si nécessaire. Le chevauchement vise 15 %
+aux frontières de ce dernier découpage, ajusté aux unités entières qui tiennent
+dans le budget. Le budget par défaut
+est d'environ 1 200 tokens, estimés sans dépendance GPU, chemin compris ;
+`--max-tokens` permet de l'ajuster. Le backend vérifie ensuite la vraie limite
+du tokenizer : aucune troncature silencieuse. Une ligne indivisible qui dépasse
+le budget est signalée. Chaque sous-chunk conserve ses folios page par page.
+
 ### Le retrieval est hybride, et ce n'est pas négociable
 
 Un bot de règles doit retrouver des termes exacts que l'embedding dense écrase :
@@ -209,9 +218,11 @@ uv run rulelawyer ingest mon-livre.pdf --output .cache/mon-livre
 Le dossier contient `probe.json` et `chunks.jsonl`. Les sections conservent le
 texte et le folio de chaque page, et leur chemin est inclus dans le texte
 embeddé. Une section multifeuille garde donc des citations exactes. Une
-destination de section ambiguë est signalée ; les sections dépassant la
-capacité du modèle sont refusées sans troncature silencieuse. Routes B–D,
-images, profils et mise en page complexe restent hors de cette démo.
+destination de section ambiguë est signalée et peut être précisée par un
+profil. Les signets hors ordre sont replacés selon leurs ancres, en conservant
+leur hiérarchie, et l'extraction suit l'ordre du flux texte du PDF pour éviter
+de fusionner deux colonnes. Routes B–D, images et mises en page dont le flux
+texte est incorrect restent à traiter.
 
 ## Setup développeur
 
@@ -240,15 +251,42 @@ C'est là qu'on attend les contributions : voir
 
 ```bash
 rulelawyer profile init mon-livre.pdf > profiles/mon-jdr.yaml
+rulelawyer ingest mon-livre.pdf --profile profiles/mon-jdr.yaml
 ```
+
+Le matching automatique consulte `profiles/` (ou `--profiles-dir`) et exige
+tous les critères du YAML. Plusieurs profils compatibles provoquent une
+erreur : `--profile` permet un choix explicite, toujours vérifié contre le PDF.
+Le rapport indique le profil appliqué. Voir les
+[paramètres et conventions](profiles/README.md), notamment la pagination et
+les ancres de titres répétées. Le profil fourni pour le manuel de référence
+contient uniquement des empreintes et paramètres, aucun passage du livre.
+
+## Évaluation
+
+Le [jeu de 30 questions](eval/questions.yaml) est lié au hash du manuel local
+de référence et couvre faits, procédures, questions croisées, hors-livre et
+ambiguïtés. Les pages attendues sont les folios du livre, jamais les index PDF.
+
+```bash
+uv run --extra index python eval/run_eval.py \
+  --pdf /chemin/Corporation-RPG-Core-Rulebook.pdf
+```
+
+Ce mode mesure le retrieval avec les vrais modèles locaux. `--generate`
+active aussi les appels OpenRouter (clé requise) en envoyant les passages
+retrouvés. Sans cette option, les métriques de génération restent nulles.
+Les chunks, l'index et les rapports restent locaux et ignorés par Git.
+Voir [les métriques et limites](eval/README.md) pour interpréter le résultat.
+La [baseline réelle sur Corporation](eval/baseline.md) mesure **60,42 % de
+Recall@6**, sous la cible de 85 %. La qualité du retrieval reste à améliorer.
 
 ## État
 
 **Disponible aujourd'hui : `probe`, `ingest` Route A et `ask` sur PDF natif
 avec outline exploitable.** La démo ci-dessus traverse extraction, index local,
 retrieval hybride et génération OpenRouter conditionnée à la présence de la
-clé. Les profils et
-`rulelawyer profile init` ne sont pas encore disponibles.
+clé. Le chargement de profils YAML et `rulelawyer profile init` sont disponibles.
 
 - [x] Scaffold, hygiène du dépôt et CI Linux / macOS / Windows : hook
   pre-commit, refus des contenus interdits et des fichiers de secrets,
@@ -262,13 +300,18 @@ clé. Les profils et
   (Knave 1.0, CC BY 4.0). PDF natif, outline absent, route B.
 - [ ] Validation sur d'autres PDF réels, notamment un scan sans couche
   texte (Route C).
-- [x] Route A minimale : extraction depuis l'outline, chunks par section et
-  provenance page par page ; PDF synthétique généré hors dépôt.
-- [ ] Profils : chargement YAML, matching, surcharges et `profile init`.
+- [x] Route A : extraction depuis l'outline, découpage borné des sections
+  longues et provenance page par page ; validation synthétique et manuel local.
+- [x] Profils : chargement YAML, matching, surcharges et `profile init`.
 - [x] Index Qdrant local, BM25 + dense BGE-M3, RRF, reranker et seuil de refus.
 - [x] CLI `ingest` / `ask`, page choisie par retrieval et garde OpenRouter sans clé.
 - [x] Validation réelle de la génération OpenRouter avec une clé configurée : démo Veilleurs, « Traverser un Pont de brume coûte exactement 3 étincelles. (p. 42) ».
-- [ ] Évaluation étendue sur des manuels, REPL et intégration SDK Anthropic.
+- [x] Jeu de 30 questions et runner d'évaluation du retrieval, avec métriques
+  optionnelles de génération, refus et citations.
+- [ ] Recall@6 ≥ 85 % sur le manuel de référence (baseline : 60,42 %).
+- [ ] Validation de la génération sur le jeu complet, clarification des questions
+  ambiguës et réponses croisées sur plusieurs passages.
+- [ ] REPL et intégration SDK Anthropic.
 - [ ] Route B, serveur MCP, Space Hugging Face, Routes C et D.
 
 Les tests synthétiques vérifient notamment la pagination différente du PDF, le repli par la table des matières,

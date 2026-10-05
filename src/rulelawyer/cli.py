@@ -11,8 +11,11 @@ from rich.console import Console
 
 from rulelawyer import __version__
 from rulelawyer.answer import answer_from_passage
+from rulelawyer.chunking import DEFAULT_MAX_TOKENS, estimate_tokens
 from rulelawyer.ingest import ingest_route_a, read_chunks, write_chunks
+from rulelawyer.models import Route
 from rulelawyer.probe import probe
+from rulelawyer.profiles import profile_template
 from rulelawyer.report import render
 
 app = typer.Typer(
@@ -23,11 +26,23 @@ app = typer.Typer(
 )
 console = Console()
 errors = Console(stderr=True)
+profile_app = typer.Typer(help="Créer un profil de livre sans contenu du PDF.")
+app.add_typer(profile_app, name="profile")
 
 
-def _ingest(pdf: Path, output: Path) -> Path:
-    report = probe(pdf)
-    chunks = ingest_route_a(pdf, report)
+def _ingest(
+    pdf: Path,
+    output: Path,
+    *,
+    profiles_dir: Path = Path("profiles"),
+    profile_path: Path | None = None,
+    route: Route | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> Path:
+    report = probe(
+        pdf, profiles_dir=profiles_dir, profile_path=profile_path, route=route
+    )
+    chunks = ingest_route_a(pdf, report, max_tokens=max_tokens)
     output.mkdir(parents=True, exist_ok=True)
     (output / "probe.json").write_text(
         report.model_dump_json(indent=2), encoding="utf-8"
@@ -41,14 +56,37 @@ def _ingest(pdf: Path, output: Path) -> Path:
 def ingest_command(
     pdf: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
     output: Annotated[Path, typer.Option("--output", "-o")] = Path(".cache/rulelawyer"),
+    profiles_dir: Annotated[Path, typer.Option("--profiles-dir")] = Path("profiles"),
+    profile_path: Annotated[
+        Path | None, typer.Option("--profile", exists=True, dir_okay=False)
+    ] = None,
+    route: Annotated[Route | None, typer.Option("--route")] = None,
+    max_tokens: Annotated[
+        int, typer.Option("--max-tokens", min=1)
+    ] = DEFAULT_MAX_TOKENS,
 ) -> None:
     """Extrait un chunks.jsonl par sections, après diagnostic Route A."""
     try:
-        path = _ingest(pdf, output)
+        path = _ingest(
+            pdf,
+            output,
+            profiles_dir=profiles_dir,
+            profile_path=profile_path,
+            route=route,
+            max_tokens=max_tokens,
+        )
     except (ValueError, OSError) as exc:
         errors.print(str(exc), markup=False)
         raise typer.Exit(code=1) from exc
     console.print(str(path), markup=False)
+    chunks = read_chunks(path)
+    lengths = sorted(estimate_tokens(c.text) for c in chunks)
+    console.print(
+        f"{len({c.section_path for c in chunks})} sections, {len(chunks)} chunks ; "
+        f"tokens estimés min/médiane/max : "
+        f"{lengths[0]}/{lengths[len(lengths) // 2]}/{lengths[-1]}",
+        markup=False,
+    )
 
 
 @app.command("ask")
@@ -58,6 +96,14 @@ def ask_command(
     cache_dir: Annotated[Path, typer.Option("--cache-dir")] = Path(".cache/rulelawyer"),
     threshold: Annotated[float, typer.Option("--threshold", min=0, max=1)] = 0.5,
     debug: Annotated[bool, typer.Option("--debug")] = False,
+    profiles_dir: Annotated[Path, typer.Option("--profiles-dir")] = Path("profiles"),
+    profile_path: Annotated[
+        Path | None, typer.Option("--profile", exists=True, dir_okay=False)
+    ] = None,
+    route: Annotated[Route | None, typer.Option("--route")] = None,
+    max_tokens: Annotated[
+        int, typer.Option("--max-tokens", min=1)
+    ] = DEFAULT_MAX_TOKENS,
 ) -> None:
     """Interroge un PDF natif : index local, retrieval hybride, OpenRouter."""
     try:
@@ -66,7 +112,14 @@ def ask_command(
         from rulelawyer.retrieval import BGEModels, open_index
 
         with errors.status("Diagnostic et extraction des sections…"):
-            chunks_path = _ingest(pdf, cache_dir)
+            chunks_path = _ingest(
+                pdf,
+                cache_dir,
+                profiles_dir=profiles_dir,
+                profile_path=profile_path,
+                route=route,
+                max_tokens=max_tokens,
+            )
             chunks = read_chunks(chunks_path)
         with (
             errors.status("Index local, recherche hybride et reranking…"),
@@ -103,6 +156,11 @@ def probe_command(
     quiet: Annotated[
         bool, typer.Option("--quiet", "-q", help="N'affiche rien, écrit juste le JSON.")
     ] = False,
+    profiles_dir: Annotated[Path, typer.Option("--profiles-dir")] = Path("profiles"),
+    profile_path: Annotated[
+        Path | None, typer.Option("--profile", exists=True, dir_okay=False)
+    ] = None,
+    route: Annotated[Route | None, typer.Option("--route")] = None,
 ) -> None:
     """Diagnostique un PDF et recommande une route d'ingestion.
 
@@ -113,8 +171,14 @@ def probe_command(
         console.print(f"[red]Fichier introuvable :[/red] {pdf}")
         raise typer.Exit(code=2)
 
-    with console.status(f"Analyse de {pdf.name}…", spinner="dots"):
-        report = probe(pdf)
+    try:
+        with errors.status(f"Analyse de {pdf.name}…", spinner="dots"):
+            report = probe(
+                pdf, profiles_dir=profiles_dir, profile_path=profile_path, route=route
+            )
+    except (ValueError, OSError) as exc:
+        errors.print(str(exc), markup=False)
+        raise typer.Exit(code=1) from exc
 
     if not quiet:
         render(report, console)
@@ -130,6 +194,22 @@ def probe_command(
 
     if report.errors:
         raise typer.Exit(code=1)
+
+
+@profile_app.command("init")
+def profile_init_command(
+    pdf: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
+    name: Annotated[str | None, typer.Option("--name")] = None,
+) -> None:
+    """Émet un YAML sur stdout : redirigez-le vers profiles/mon-livre.yaml."""
+    try:
+        report = probe(pdf, profiles_dir=None)
+        if report.errors:
+            raise ValueError("Le PDF présente des erreurs d'extraction.")
+        typer.echo(profile_template(report, name or pdf.stem), nl=False)
+    except (ValueError, OSError) as exc:
+        errors.print(str(exc), markup=False)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command("version")

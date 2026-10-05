@@ -1,0 +1,25 @@
+name: Corporation Core Rulebook (local reference edition)
+match:
+  page_count: 257
+  producer_contains: pdf-tools.com
+  first_page_text_sha256: ae993aa6f6159d9c549a9ed4ead5754d7c512f160f634e675bfb76df00c1c90c
+route: A
+drop_sections: [Front Cover, Credits, Table of Contents, Index, Character Sheet, NPC Sheet]
+heading_overrides:
+  Non-Combat Trainings:
+    text: NON-COMBAT TRAININGS
+    occurrence: 1
+  Telepathic Rolls:
+    text: TELEPATHICS ROLLS
+  Mission Pay:
+    text: MISSION PAY
+    occurrence: 1
+  Minor Corporations:
+    text: MINOR CORPORATIONS
+    occurrence: 1
+  Terms and Slang:
+    text: TERMS AND SLANG
+    occurrence: 1
+notes: >-
+  Parameters only; no book passages. Repeated sidebar headings require explicit
+  occurrences. Folios remain measured by the probe; no global offset is forced.

@@ -11,7 +11,7 @@ uv run --extra index python eval/run_eval.py --pdf /chemin/manuel.pdf
 uv run --extra index python eval/run_eval.py --pdf /chemin/manuel.pdf --generate
 ```
 
-Options utiles : `--questions`, `--profile`, `--profiles-dir`, `--threshold`,
+Options utiles : `--provider openrouter|anthropic`, `--questions`, `--profile`, `--profiles-dir`, `--threshold`,
 `--max-tokens`, `--cache-dir` et `--output`. Le seuil d’admission par défaut est 0.1. Il s’applique au meilleur score
 de la requête ; les preuves complémentaires ne sont pas filtrées une à une.
 Le résultat final retient au maximum six pages PDF distinctes, avec le meilleur
@@ -47,9 +47,13 @@ que chaque cas passe ses contrôles de réponse, refus ou clarification.
 La sortie vaut 1 pour une évaluation sous la cible et 2 pour une exécution
 impossible (mauvais PDF, configuration, dépendances ou extraction).
 
-L'agent actuel reçoit seulement le premier passage : les réponses croisées et
-les demandes de clarification constituent des limites à mesurer, puis à
-implémenter. Les critères de mots ne prouvent pas seuls la justesse sémantique
+La voie OpenRouter historique reçoit seulement le premier passage.
+`--generate --provider anthropic` utilise le SDK Anthropic et jusqu’à six
+preuves, avec citations contrôlées pour toutes les pages fournies. Les
+clarifications et refus français/anglais sont contrôlés sans citation.
+Les deux clés sont absentes dans cette reprise : aucune génération réelle
+sur les 30 cas n’a été exécutée. Les tests simulés de l’agent ne constituent
+pas une mesure de qualité générative sur le manuel. Les critères de mots ne prouvent pas seuls la justesse sémantique
 d'une réponse ; relire les cas reste nécessaire.
 
 Le chevauchement du découpage vise 15 % en conservant des unités sémantiques

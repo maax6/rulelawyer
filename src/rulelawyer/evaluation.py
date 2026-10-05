@@ -12,7 +12,12 @@ from typing import Literal, Protocol
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rulelawyer.answer import NOT_ESTABLISHED, NOT_FOUND
+from rulelawyer.answer import (
+    NOT_ESTABLISHED,
+    NOT_ESTABLISHED_EN,
+    NOT_FOUND,
+    NOT_FOUND_EN,
+)
 from rulelawyer.ingest import ChunkPage
 from rulelawyer.retrieval import SearchHit
 from rulelawyer.retrieval_config import DEFAULT_THRESHOLD
@@ -161,8 +166,12 @@ def evaluate(
     *,
     threshold: float = DEFAULT_THRESHOLD,
     generate: Callable[[str, ChunkPage | None], str] | None = None,
+    generate_from_hits: Callable[[str, list[SearchHit]], str] | None = None,
     progress: Callable[[int, int, str], None] | None = None,
 ) -> EvaluationReport:
+    if generate is not None and generate_from_hits is not None:
+        raise ValueError("Choisissez un seul générateur.")
+    generation = generate is not None or generate_from_hits is not None
     results: list[CaseResult] = []
     for number, case in enumerate(questions, 1):
         hits = index.search(case.question, threshold=threshold, top_k=6)[:6]
@@ -190,9 +199,13 @@ def evaluate(
             recall_at_6=recall,
             retrieval_refused=not hits,
         )
-        if generate is not None:
+        if generation:
             try:
-                answer = generate(case.question, hits[0].page if hits else None)
+                if generate_from_hits is not None:
+                    answer = generate_from_hits(case.question, hits)
+                else:
+                    assert generate is not None
+                    answer = generate(case.question, hits[0].page if hits else None)
             except (ValueError, OSError, RuntimeError):
                 # Pas de message fournisseur, de passage ni de secret dans le rapport.
                 result.error = "Generation failed"
@@ -210,7 +223,9 @@ def evaluate(
                 )
             )
             cited = {int(p) for p in re.findall(r"\(p\.\s*(\d+)\)", answer)}
-            evidence = {hits[0].page.book_page} if hits else set()
+            evidence = {
+                h.page.book_page for h in (hits if generate_from_hits else hits[:1])
+            }
             if answerable:
                 result.citation_present = bool(cited)
                 result.citation_exact = (
@@ -225,9 +240,23 @@ def evaluate(
                     and result.error is None
                 )
             elif case.category == "out_of_book":
-                result.correct_refusal = (
-                    answer in {NOT_FOUND, NOT_ESTABLISHED} and not cited
-                )
+                refusals = {
+                    NOT_FOUND,
+                    NOT_ESTABLISHED,
+                    NOT_FOUND_EN,
+                    NOT_ESTABLISHED_EN,
+                }
+                if hits:
+                    refusals |= {
+                        refusal + label + hits[0].chunk.section_path + "."
+                        for refusal, label in [
+                            (NOT_ESTABLISHED, " Section proche : "),
+                            (NOT_FOUND, " Section proche : "),
+                            (NOT_ESTABLISHED_EN, " Closest section: "),
+                            (NOT_FOUND_EN, " Closest section: "),
+                        ]
+                    }
+                result.correct_refusal = answer in refusals and not cited
             else:
                 result.correct_clarification = (
                     bool(answer) and "?" in answer and checks and not cited
@@ -249,7 +278,7 @@ def evaluate(
         if value is not None:
             by_category[category] = value
     return EvaluationReport(
-        mode="generation" if generate is not None else "retrieval",
+        mode="generation" if generation else "retrieval",
         threshold=threshold,
         cases=results,
         recall_at_6=recall_total,
@@ -293,7 +322,7 @@ def evaluate(
                 or r.correct_clarification is True
                 for r in results
             )
-            if generate is not None
+            if generation
             else None
         ),
     )

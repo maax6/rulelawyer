@@ -216,9 +216,9 @@ calibré sur un corpus original distinct ; à valider sur d’autres manuels).
 
 La réponse utilise **OpenRouter, `openai/gpt-4o-mini`, température 0**, via
 `https://openrouter.ai/api/v1/chat/completions` et `OPENROUTER_API_KEY`.
-La clé n'est ni enregistrée ni affichée. L'extra SDK `agent = anthropic`
-reste réservé à une intégration ultérieure ; cette démo utilise le client
-HTTP standard Python. Aucun recours à Claude CLI ou à un modèle `:free`.
+La clé n’est ni enregistrée ni affichée. Cette démo utilise le client
+HTTP standard Python ; l’intégration SDK Anthropic est disponible séparément
+avec `--provider anthropic` et l’extra `[agent]`. Aucun recours à Claude CLI ou à un modèle `:free`.
 
 Le retrieval fixe le passage et sa `book_page` **avant** la génération.
 Seul le texte de ce passage est envoyé au modèle, qui ne choisit jamais de
@@ -253,6 +253,53 @@ profil. Les signets hors ordre sont replacés selon leurs ancres, en conservant
 leur hiérarchie, et l'extraction suit l'ordre du flux texte du PDF pour éviter
 de fusionner deux colonnes. Routes B–D, images et mises en page dont le flux
 texte est incorrect restent à traiter.
+
+## Agent Anthropic et REPL
+
+```bash
+uv sync --extra index --extra agent
+uv run --extra index --extra agent rulelawyer ask mon-livre.pdf \
+  "Ma question de règles" --provider anthropic --debug
+uv run --extra index --extra agent rulelawyer repl mon-livre.pdf --debug
+# Validation de génération réelle : clé requise, aucun appel sans elle.
+uv run --extra index --extra agent python eval/run_eval.py \
+  --pdf "$PWD/Corporation-RPG-Core-Rulebook.pdf" --generate --provider anthropic
+```
+
+Le REPL utilise Anthropic par défaut ; `/history`, `/clear` et `/quit`
+consultent, effacent et terminent la session. L’index reste ouvert et
+l’historique reste en mémoire, sans fichier de conversation. Les douze derniers
+échanges sont transmis à l’agent Anthropic ; le retrieval utilise la question
+courante. Les questions doivent donc nommer leur sujet : la résolution des
+références implicites avant la recherche reste à améliorer. `--debug` affiche
+les passages et leurs scores. `ask` conserve OpenRouter par défaut ;
+`--provider openrouter` est aussi disponible dans le REPL.
+
+Le [SDK officiel Anthropic](https://platform.claude.com/docs/en/api/sdks/python)
+utilise `ANTHROPIC_API_KEY`, `claude-sonnet-4-6` et une température de zéro.
+Cette voie reçoit jusqu’à six preuves ; le modèle associe chaque affirmation
+à un indice de source et une citation textuelle. Le code contrôle ces sources,
+les citations textuelles et les valeurs numériques, puis ajoute les folios
+mesurés. Le modèle doit répondre dans la langue de la question, garder les
+termes du livre, demander une clarification si nécessaire, ou refuser malgré
+du contexte insuffisant. Les refus français/anglais sont limités à des textes
+connus, avec la section la plus proche lorsqu’elle existe. La voie OpenRouter
+historique reste limitée au premier passage et à des phrases extractives.
+
+Ce contrat permet les réponses croisées sans laisser choisir une page librement
+au modèle. Il ne prouve pas qu’une paraphrase est sémantiquement fidèle :
+une citation exacte peut accompagner une interprétation fausse, et les nombres
+écrits en lettres ne sont pas vérifiés par le garde numérique. Les citations
+textuelles de moins de vingt caractères sont refusées ; les cas courts doivent
+fournir leur phrase de contexte. La justesse, la langue des réponses et la
+qualité des clarifications doivent être validées sur le jeu complet.
+
+**Point 5 partiel** : SDK réel testé sur transport HTTP simulé, REPL et
+validation multi-preuves testés sur des règles originales. Aucun appel LLM
+réel dans cette reprise. Les clés Anthropic et OpenRouter sont absentes :
+les deux runners de génération s’arrêtent avant l’indexation et le réseau.
+La validation des 30 questions en génération reste bloquée ; les points
+6 à 9 attendent cette étape, conformément à l’ordre du brief.
 
 ## Setup développeur
 
@@ -317,7 +364,8 @@ pas validée sur ce jeu.
 ## État
 
 **Disponible aujourd'hui : `probe`, `ingest` Route A et `ask` sur PDF natif
-avec outline exploitable.** La démo ci-dessus traverse extraction, index local,
+avec outline exploitable, REPL et SDK Anthropic.** La génération Anthropic
+sur le manuel reste non validée. La démo ci-dessus traverse extraction, index local,
 retrieval hybride et génération OpenRouter conditionnée à la présence de la
 clé. Le chargement de profils YAML et `rulelawyer profile init` sont disponibles.
 
@@ -345,13 +393,17 @@ clé. Le chargement de profils YAML et `rulelawyer profile init` sont disponible
   (baseline : 60,42 %), questions inchangées, seuil calibré hors du manuel.
 - [ ] Validation de la génération sur le jeu complet, clarification des questions
   ambiguës et réponses croisées sur plusieurs passages.
-- [ ] REPL et intégration SDK Anthropic.
+- [x] REPL et intégration SDK Anthropic : tests de contrat avec transport
+  simulé ; aucune validation LLM réelle sur le manuel dans cette reprise.
 - [ ] Route B, serveur MCP, Space Hugging Face, Routes C et D.
 
 Les tests synthétiques vérifient notamment la pagination différente du PDF, le repli par la table des matières,
 les sections multifeuilles, le retrieval et la réouverture de Qdrant, le refus
 hors livre, l'arrêt avant réseau sans clé et le rejet de citations inventées.
 Les modèles et le transport OpenRouter sont doublés dans les tests automatisés.
+Le vrai SDK Anthropic utilise un transport HTTP simulé ; les tests couvrent
+plusieurs preuves, refus, clarification, valeurs/citations invalides, erreurs
+fournisseur, troncature et absence de clé. La justesse sémantique reste non validée.
 Le retrieval a été exécuté avec les vrais modèles locaux. L'appel OpenRouter
 a été validé sur la démo Veilleurs : 3 étincelles, page 42. Les tests du PDF commercial sont optionnels.
 
@@ -363,5 +415,5 @@ uv run --group test-index mypy
 uv run --group test-index pytest -q
 ```
 
-Le groupe `test-index` permet de tester Qdrant et BM25 en CI sans installer
-torch. La CI multi-OS rejoue ces vérifications à chaque push sur `main`.
+Le groupe `test-index` permet de tester Qdrant, BM25 et le contrat SDK
+Anthropic en CI sans installer torch. La CI multi-OS rejoue ces vérifications à chaque push sur `main`.

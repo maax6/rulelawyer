@@ -14,6 +14,8 @@ from rulelawyer.ingest import ChunkPage
 
 NOT_FOUND = "Ce n'est pas dans le manuel."
 NOT_ESTABLISHED = "Ce n'est pas établi par le manuel."
+NOT_FOUND_EN = "This is not in the manual."
+NOT_ESTABLISHED_EN = "This is not established by the manual."
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "openai/gpt-4o-mini"
 SYSTEM_PROMPT = """Réponds aux questions de règles à partir du seul passage fourni.

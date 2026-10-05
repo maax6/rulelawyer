@@ -62,7 +62,7 @@ Homepage = "https://github.com/maax6/rulelawyer"
 Issues = "https://github.com/maax6/rulelawyer/issues"
 
 [dependency-groups]
-test-index = ["qdrant-client>=1.12", "bm25s>=0.2"]
+test-index = ["qdrant-client>=1.12", "bm25s>=0.2", "anthropic>=0.40"]
 dev = [
     "reportlab>=4.2",
     "pytest>=8.3",

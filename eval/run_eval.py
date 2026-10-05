@@ -7,6 +7,7 @@ import hashlib
 import os
 from pathlib import Path
 
+from rulelawyer.agent import Provider, answer_with_anthropic
 from rulelawyer.answer import answer_from_passage
 from rulelawyer.chunking import DEFAULT_MAX_TOKENS
 from rulelawyer.evaluation import evaluate, load_dataset
@@ -22,6 +23,9 @@ def main() -> int:
     parser.add_argument(
         "--questions", type=Path, default=Path(__file__).with_name("questions.yaml")
     )
+    parser.add_argument(
+        "--provider", choices=list(Provider), default=Provider.OPENROUTER
+    )
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--profiles-dir", type=Path, default=Path("profiles"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/evaluation"))
@@ -31,15 +35,21 @@ def main() -> int:
     parser.add_argument(
         "--generate",
         action="store_true",
-        help="Appelle OpenRouter avec les passages du livre ; nécessite la clé.",
+        help="Appelle le fournisseur choisi avec les preuves ; nécessite sa clé.",
     )
     args = parser.parse_args()
     try:
         dataset = load_dataset(args.questions)
         if not 0 <= args.threshold <= 1:
             raise ValueError("Le seuil doit etre entre 0 et 1.")
-        if args.generate and not os.environ.get("OPENROUTER_API_KEY", "").strip():
-            raise ValueError("OPENROUTER_API_KEY absente : aucun appel ni indexation.")
+        provider = Provider(args.provider)
+        key_name = (
+            "ANTHROPIC_API_KEY"
+            if provider is Provider.ANTHROPIC
+            else "OPENROUTER_API_KEY"
+        )
+        if args.generate and not os.environ.get(key_name, "").strip():
+            raise ValueError(f"{key_name} absente : aucun appel ni indexation.")
         with args.pdf.open("rb") as handle:
             file_hash = hashlib.file_digest(handle, "sha256").hexdigest()
         if file_hash != dataset.file_sha256:
@@ -57,7 +67,16 @@ def main() -> int:
                 dataset.questions,
                 index,
                 threshold=args.threshold,
-                generate=answer_from_passage if args.generate else None,
+                generate=(
+                    answer_from_passage
+                    if args.generate and provider is Provider.OPENROUTER
+                    else None
+                ),
+                generate_from_hits=(
+                    answer_with_anthropic
+                    if args.generate and provider is Provider.ANTHROPIC
+                    else None
+                ),
                 progress=lambda n, total, key: print(f"{n}/{total} {key}", flush=True),
             )
         args.output.parent.mkdir(parents=True, exist_ok=True)

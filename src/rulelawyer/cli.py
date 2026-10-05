@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
 
 from rulelawyer import __version__
+from rulelawyer.agent import Provider, answer_with_anthropic
 from rulelawyer.answer import answer_from_passage
 from rulelawyer.chunking import DEFAULT_MAX_TOKENS
 from rulelawyer.ingest import ingest_route_a, read_chunks, write_chunks
@@ -19,6 +20,9 @@ from rulelawyer.probe import probe
 from rulelawyer.profiles import profile_template
 from rulelawyer.report import render
 from rulelawyer.retrieval_config import DEFAULT_THRESHOLD
+
+if TYPE_CHECKING:
+    from rulelawyer.retrieval import SearchHit
 
 app = typer.Typer(
     add_completion=False,
@@ -30,6 +34,28 @@ console = Console()
 errors = Console(stderr=True)
 profile_app = typer.Typer(help="Créer un profil de livre sans contenu du PDF.")
 app.add_typer(profile_app, name="profile")
+
+
+def _answer(
+    question: str,
+    hits: list[SearchHit],
+    provider: Provider,
+    history: list[tuple[str, str]] | None = None,
+) -> str:
+    if provider is Provider.ANTHROPIC:
+        return answer_with_anthropic(question, hits, history=history)
+    return answer_from_passage(question, hits[0].page if hits else None)
+
+
+def _debug(hits: list[SearchHit]) -> None:
+    for hit in hits:
+        errors.print(
+            f"{hit.chunk.section_path} | book_page={hit.page.book_page} "
+            f"pdf_page={hit.page.pdf_page} | BM25 rang={hit.bm25_rank} "
+            f"dense rang={hit.dense_rank} RRF={hit.rrf_score:.4f} "
+            f"rerank={hit.score:.4f}\n{hit.page.text}",
+            markup=False,
+        )
 
 
 def _ingest(
@@ -106,6 +132,7 @@ def ask_command(
         float, typer.Option("--threshold", min=0, max=1)
     ] = DEFAULT_THRESHOLD,
     debug: Annotated[bool, typer.Option("--debug")] = False,
+    provider: Annotated[Provider, typer.Option("--provider")] = Provider.OPENROUTER,
     profiles_dir: Annotated[Path, typer.Option("--profiles-dir")] = Path("profiles"),
     profile_path: Annotated[
         Path | None, typer.Option("--profile", exists=True, dir_okay=False)
@@ -115,7 +142,7 @@ def ask_command(
         int, typer.Option("--max-tokens", min=1)
     ] = DEFAULT_MAX_TOKENS,
 ) -> None:
-    """Interroge un PDF natif : index local, retrieval hybride, OpenRouter."""
+    """Interroge un PDF natif : retrieval hybride, OpenRouter ou Anthropic."""
     try:
         if not question.strip():
             raise ValueError("La question est vide.")
@@ -137,23 +164,83 @@ def ask_command(
         ):
             hits = index.search(question, threshold=threshold)
         if debug:
-            for hit in hits:
-                errors.print(
-                    f"{hit.chunk.section_path} | book_page={hit.page.book_page} "
-                    f"pdf_page={hit.page.pdf_page} | BM25 rang={hit.bm25_rank} "
-                    f"dense rang={hit.dense_rank} RRF={hit.rrf_score:.4f} "
-                    f"rerank={hit.score:.4f}",
-                    markup=False,
-                )
-        with errors.status("Réponse depuis le passage retenu via OpenRouter…"):
-            answer = answer_from_passage(question, hits[0].page if hits else None)
+            _debug(hits)
+        with errors.status(f"Réponse via {provider.value}…"):
+            answer = _answer(question, hits, provider)
     except ImportError as exc:
-        errors.print("Dépendances d'index absentes : lancez uv sync --extra index.")
+        errors.print(
+            "Dépendances absentes : lancez uv sync --extra index --extra agent."
+        )
         raise typer.Exit(code=2) from exc
     except (ValueError, OSError, RuntimeError) as exc:
         errors.print(str(exc), markup=False)
         raise typer.Exit(code=1) from exc
     console.print(answer, markup=False, highlight=False)
+
+
+@app.command("repl")
+def repl_command(
+    pdf: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
+    cache_dir: Annotated[Path, typer.Option("--cache-dir")] = Path(".cache/rulelawyer"),
+    provider: Annotated[Provider, typer.Option("--provider")] = Provider.ANTHROPIC,
+    threshold: Annotated[
+        float, typer.Option("--threshold", min=0, max=1)
+    ] = DEFAULT_THRESHOLD,
+    debug: Annotated[bool, typer.Option("--debug")] = False,
+    profiles_dir: Annotated[Path, typer.Option("--profiles-dir")] = Path("profiles"),
+    profile_path: Annotated[
+        Path | None, typer.Option("--profile", exists=True, dir_okay=False)
+    ] = None,
+    route: Annotated[Route | None, typer.Option("--route")] = None,
+    max_tokens: Annotated[
+        int, typer.Option("--max-tokens", min=1)
+    ] = DEFAULT_MAX_TOKENS,
+) -> None:
+    """Questions successives ; /history, /clear, /quit. Historique en mémoire."""
+    try:
+        from rulelawyer.retrieval import BGEModels, open_index
+
+        path = _ingest(
+            pdf,
+            cache_dir,
+            profiles_dir=profiles_dir,
+            profile_path=profile_path,
+            route=route,
+            max_tokens=max_tokens,
+        )
+        history: list[tuple[str, str]] = []
+        with open_index(
+            read_chunks(path), cache_dir / "qdrant_storage", BGEModels()
+        ) as index:
+            console.print("/history, /clear, /quit — historique de session en mémoire.")
+            while True:
+                try:
+                    question = console.input("règle> ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    break
+                if question == "/quit":
+                    break
+                if question == "/clear":
+                    history.clear()
+                    continue
+                if question == "/history":
+                    for asked, answered in history:
+                        console.print(f"{asked}\n{answered}", markup=False)
+                    continue
+                if not question:
+                    continue
+                hits = index.search(question, threshold=threshold)
+                if debug:
+                    _debug(hits)
+                answer = _answer(question, hits, provider, history)
+                history.append((question, answer))
+                console.print(answer, markup=False, highlight=False)
+    except ImportError as exc:
+        errors.print("Installez les dépendances : uv sync --extra index --extra agent.")
+        raise typer.Exit(code=2) from exc
+    except (ValueError, OSError, RuntimeError) as exc:
+        errors.print(str(exc), markup=False)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command("probe")

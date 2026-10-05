@@ -215,7 +215,18 @@ Pour produire seulement le format commun, sans dépendance d'indexation :
 uv run rulelawyer ingest mon-livre.pdf --output .cache/mon-livre
 ```
 
-Le dossier contient `probe.json` et `chunks.jsonl`. Les sections conservent le
+Le dossier contient `probe.json`, `chunks.jsonl` et `stats.json`. Les statistiques
+comptent les sections, chunks, tailles estimées par tranches et occurrences
+d'images retenues/filtrées. Le filtre mesure les pixels source (100×100 minimum)
+et les octets du flux PDF encodé (5 Ko minimum), pas la taille affichée.
+« Retenue » signifie éligible : le captioning et l'indexation d'images restent
+à valider. Ce filtre ne sait pas distinguer une texture d'une illustration utile.
+Sur le manuel local : 150 sections, 344 chunks, min/médiane/max
+17/992/1 200 tokens ; tranches ≤300 / 301–600 / 601–900 / 901–1 200 :
+40 / 42 / 58 / 204. Images : 369 occurrences, 362 éligibles, 7 filtrées,
+0 indexée. Ces comptes n'impliquent aucune mesure d'utilité mécanique.
+
+Les sections conservent le
 texte et le folio de chaque page, et leur chemin est inclus dans le texte
 embeddé. Une section multifeuille garde donc des citations exactes. Une
 destination de section ambiguë est signalée et peut être précisée par un

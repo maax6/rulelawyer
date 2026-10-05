@@ -11,8 +11,9 @@ from rich.console import Console
 
 from rulelawyer import __version__
 from rulelawyer.answer import answer_from_passage
-from rulelawyer.chunking import DEFAULT_MAX_TOKENS, estimate_tokens
+from rulelawyer.chunking import DEFAULT_MAX_TOKENS
 from rulelawyer.ingest import ingest_route_a, read_chunks, write_chunks
+from rulelawyer.ingest_stats import IngestStats, ingestion_stats
 from rulelawyer.models import Route
 from rulelawyer.probe import probe
 from rulelawyer.profiles import profile_template
@@ -49,6 +50,9 @@ def _ingest(
     )
     path = output / "chunks.jsonl"
     write_chunks(chunks, path)
+    (output / "stats.json").write_text(
+        ingestion_stats(pdf, chunks).model_dump_json(indent=2), encoding="utf-8"
+    )
     return path
 
 
@@ -79,12 +83,15 @@ def ingest_command(
         errors.print(str(exc), markup=False)
         raise typer.Exit(code=1) from exc
     console.print(str(path), markup=False)
-    chunks = read_chunks(path)
-    lengths = sorted(estimate_tokens(c.text) for c in chunks)
+    stats = IngestStats.model_validate_json((output / "stats.json").read_text("utf-8"))
     console.print(
-        f"{len({c.section_path for c in chunks})} sections, {len(chunks)} chunks ; "
+        f"{stats.sections} sections, {stats.chunks} chunks ; "
         f"tokens estimés min/médiane/max : "
-        f"{lengths[0]}/{lengths[len(lengths) // 2]}/{lengths[-1]}",
+        f"{stats.token_min}/{stats.token_median:g}/{stats.token_max}\n"
+        f"Distribution : {stats.token_distribution}\n"
+        f"Images : {stats.images_kept} retenues (éligibles), "
+        f"{stats.images_filtered} filtrées, {stats.images_indexed} indexées ; "
+        "captioning non exécuté.",
         markup=False,
     )
 

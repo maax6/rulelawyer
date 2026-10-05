@@ -18,6 +18,7 @@ from rulelawyer.models import Route
 from rulelawyer.probe import probe
 from rulelawyer.profiles import profile_template
 from rulelawyer.report import render
+from rulelawyer.retrieval_config import DEFAULT_THRESHOLD
 
 app = typer.Typer(
     add_completion=False,
@@ -101,7 +102,9 @@ def ask_command(
     pdf: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
     question: Annotated[str, typer.Argument(help="Question sur ce manuel.")],
     cache_dir: Annotated[Path, typer.Option("--cache-dir")] = Path(".cache/rulelawyer"),
-    threshold: Annotated[float, typer.Option("--threshold", min=0, max=1)] = 0.5,
+    threshold: Annotated[
+        float, typer.Option("--threshold", min=0, max=1)
+    ] = DEFAULT_THRESHOLD,
     debug: Annotated[bool, typer.Option("--debug")] = False,
     profiles_dir: Annotated[Path, typer.Option("--profiles-dir")] = Path("profiles"),
     profile_path: Annotated[

@@ -136,8 +136,27 @@ le budget est signalée. Chaque sous-chunk conserve ses folios page par page.
 
 Un bot de règles doit retrouver des termes exacts que l'embedding dense écrase :
 noms de compétences, de talents, valeurs numériques, jargon propre au système.
-BM25 et dense en parallèle, fusion RRF, rerank, seuil en dessous duquel on
-répond « rien trouvé ».
+BM25 et dense en parallèle, fusion RRF, puis rerank. Les six places finales
+sont réservées à des pages PDF distinctes : le chevauchement de chunks ne doit
+pas évincer une deuxième preuve. Le passage le mieux classé de chaque page
+reste la preuve fournie ; retrouver un folio ne garantit pas que ce passage
+contient toutes les règles demandées.
+
+Le score normalisé BGE est une [sigmoïde](https://bge-model.com/tutorial/5_Reranking/5.2.html),
+pas une probabilité calibrée de justesse. Le seuil historique 0,5 rejetait des
+preuves pertinentes. Nous calibrons donc **l’admission de la requête** sur un
+[corpus original distinct](fixtures/retrieval-calibration.yaml), sans changer
+les questions du manuel : puissance de dix maximisant la moyenne entre admission
+des preuves positives et refus des négatifs, soit 0,1 (à égalité, seuil le
+plus haut). Au-dessus de ce seuil pour le meilleur passage, les
+preuves complémentaires restent candidates même avec un score inférieur.
+
+Cette règle équilibre les deux classes : 15/19 preuves positives passent
+le seuil et les 6/6 hors-corpus sont refusés. Le seuil 0,001, qui conserverait
+tous les positifs, accepterait deux négatifs ; nous ne le retenons pas. Il ne prouve ni la pertinence
+de chaque contexte secondaire, ni la justesse d’une réponse. Le seuil reste
+surchargeable et devra être validé sur plusieurs livres ; le refus final exige
+une vérification des preuves par l’agent, encore non validée sur le jeu complet.
 
 ### Le risque numéro un est la réponse plausible et fausse
 
@@ -191,9 +210,9 @@ Le périphérique est choisi automatiquement : MPS sur Mac compatible, CUDA
 si disponible, sinon CPU. Aucune API d'embedding. Qdrant persiste dans
 `--cache-dir`, sans serveur ni Docker.
 BM25 et dense récupèrent chacun jusqu'à 30 sections, fusion RRF (k=60), puis
-reranking des passages paginés vers six résultats au maximum. `--threshold`
-fixe le seuil de rejet
-(0,5 par défaut, à calibrer sur d'autres manuels).
+reranking des passages paginés vers six pages distinctes au maximum.
+`--threshold` fixe le seuil d’admission de la requête (0,1 par défaut,
+calibré sur un corpus original distinct ; à valider sur d’autres manuels).
 
 La réponse utilise **OpenRouter, `openai/gpt-4o-mini`, température 0**, via
 `https://openrouter.ai/api/v1/chat/completions` et `OPENROUTER_API_KEY`.
@@ -289,8 +308,11 @@ active aussi les appels OpenRouter (clé requise) en envoyant les passages
 retrouvés. Sans cette option, les métriques de génération restent nulles.
 Les chunks, l'index et les rapports restent locaux et ignorés par Git.
 Voir [les métriques et limites](eval/README.md) pour interpréter le résultat.
-La [baseline réelle sur Corporation](eval/baseline.md) mesure **60,42 % de
-Recall@6**, sous la cible de 85 %. La qualité du retrieval reste à améliorer.
+La [baseline réelle sur Corporation](eval/baseline.md) était à **60,42 %**.
+La [correction du retrieval](eval/retrieval-improvement.md) atteint **89,58 %
+de Recall@6**, au-dessus de la cible de 85 %, avec les mêmes questions et
+chunks. Le refus du retrieval reste à 2/3 hors-livre ; la génération n’est
+pas validée sur ce jeu.
 
 ## État
 
@@ -319,7 +341,8 @@ clé. Le chargement de profils YAML et `rulelawyer profile init` sont disponible
 - [x] Validation réelle de la génération OpenRouter avec une clé configurée : démo Veilleurs, « Traverser un Pont de brume coûte exactement 3 étincelles. (p. 42) ».
 - [x] Jeu de 30 questions et runner d'évaluation du retrieval, avec métriques
   optionnelles de génération, refus et citations.
-- [ ] Recall@6 ≥ 85 % sur le manuel de référence (baseline : 60,42 %).
+- [x] Recall@6 ≥ 85 % sur le manuel de référence : 89,58 %
+  (baseline : 60,42 %), questions inchangées, seuil calibré hors du manuel.
 - [ ] Validation de la génération sur le jeu complet, clarification des questions
   ambiguës et réponses croisées sur plusieurs passages.
 - [ ] REPL et intégration SDK Anthropic.

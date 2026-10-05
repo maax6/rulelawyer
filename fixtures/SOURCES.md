@@ -25,6 +25,12 @@ Son texte original (deux règles inventées) est sous CC0. Le PDF natif comporte
 quatre pages, un outline hiérarchique et les folios 41–44. Les tests le créent
 dans `tmp_path` ; la commande de démo du README l'écrit dans `/tmp`.
 
+[`retrieval-calibration.yaml`](retrieval-calibration.yaml), « Lantern Keepers »,
+contient six règles originales et 25 questions, sous CC0. Aucun texte ni
+question du manuel commercial. Les 19 cas répondables (dont trois croisés)
+et six hors-corpus servent uniquement à calibrer l'admission du retrieval ;
+ce petit jeu synthétique ne valide pas la qualité sur un livre réel.
+
 ## Fixtures recherchées
 
 Le probe a besoin d'au moins un cas par route pour ne pas se calibrer sur le cas

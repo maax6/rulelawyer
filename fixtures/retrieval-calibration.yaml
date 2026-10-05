@@ -1,0 +1,64 @@
+# Original synthetic rules, CC0. No reference-manual content or questions.
+# Separate threshold calibration corpus, not evidence of real-book quality.
+passages:
+  - page: 11
+    section: Lantern Keepers > Movement > Mist Ferry
+    text: >-
+      Each trip on a Mist Ferry costs four glowstones per traveller. The fare
+      must be paid before boarding. Carrying a lantern does not waive the fare.
+  - page: 12
+    section: Lantern Keepers > Gear > Lantern charge
+    text: >-
+      A lantern has six charges. Each watch consumes one charge. Refilling a
+      lantern requires two glowstones and a rest at a beacon. An empty lantern
+      cannot reveal hidden paths until it is refilled.
+  - page: 13
+    section: Lantern Keepers > Travel > Night watch
+    text: >-
+      On night watch, roll two D8 and add Vigilance. A total of twelve or more
+      reveals an approaching danger. Failing the watch roll costs one lantern
+      charge but does not cause physical injury.
+  - page: 14
+    section: Lantern Keepers > Gear > Repairs
+    text: >-
+      Broken travel gear must be repaired at a workshop. Roll Craft against
+      difficulty nine and pay three glowstones for parts. Recharging an item
+      never repairs it. A hired craftsperson charges eight glowstones.
+  - page: 15
+    section: Lantern Keepers > Travel > Lookout talent
+    text: >-
+      The Lookout talent requires Vigilance five. A Lookout rolls three D8 on
+      night watch and keeps the best two. The target total remains twelve.
+      The talent does not change the charge consumed on a failed roll.
+  - page: 16
+    section: Lantern Keepers > Movement > Heavy luggage
+    text: >-
+      Each traveller may carry two large bags. Every additional large bag
+      requires paying one extra glowstone when boarding a Mist Ferry. This
+      surcharge is added to the normal fare and cannot be waived by a talent.
+cases:
+  - {question: 'How much does a Mist Ferry trip cost per traveller?', pages: [11]}
+  - {question: 'Combien faut-il payer pour traverser avec le ferry ?', pages: [11]}
+  - {question: 'Does carrying a lantern let me board without paying?', pages: [11]}
+  - {question: 'Combien de charges contient une lanterne ?', pages: [12]}
+  - {question: 'What must I do to refill my empty lantern?', pages: [12]}
+  - {question: 'Peut-on voir les chemins cachés quand la lanterne est vide ?', pages: [12]}
+  - {question: 'How is a night watch roll resolved?', pages: [13]}
+  - {question: 'Quel seuil faut-il atteindre pour repérer un danger pendant la garde ?', pages: [13]}
+  - {question: 'Does failing a watch roll injure the watcher?', pages: [13]}
+  - {question: 'Where can I repair broken travel gear?', pages: [14]}
+  - {question: 'Quel jet et quel prix sont nécessaires pour réparer du matériel ?', pages: [14]}
+  - {question: 'Can I fix a broken item just by recharging it?', pages: [14]}
+  - {question: 'What are the prerequisites and dice benefit of Lookout?', pages: [15]}
+  - {question: 'Que change le talent Lookout pendant la garde ?', pages: [15]}
+  - {question: 'How many large bags can I carry without a ferry surcharge?', pages: [16]}
+  - {question: 'Combien coûte un sac supplémentaire sur le ferry ?', pages: [16]}
+  - {question: 'Combine the ferry fare and the surcharge for a third large bag.', pages: [11, 16]}
+  - {question: 'Compare the normal night watch roll with the Lookout talent.', pages: [13, 15]}
+  - {question: 'Comment remettre une lanterne cassée et vide en état de marche ?', pages: [12, 14]}
+  - {question: 'What is the damage of a lightning spell?', pages: []}
+  - {question: 'Quel est le salaire annuel du roi ?', pages: []}
+  - {question: 'How many planets are in the Solar System?', pages: []}
+  - {question: 'How many experience points does level ten require?', pages: []}
+  - {question: 'Comment calcule-t-on les dégâts critiques avec une épée ?', pages: []}
+  - {question: 'What happens to the fare if I use a teleportation spell?', pages: []}

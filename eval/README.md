@@ -12,7 +12,11 @@ uv run --extra index python eval/run_eval.py --pdf /chemin/manuel.pdf --generate
 ```
 
 Options utiles : `--questions`, `--profile`, `--profiles-dir`, `--threshold`,
-`--max-tokens`, `--cache-dir` et `--output`. Le seuil par défaut est 0.5.
+`--max-tokens`, `--cache-dir` et `--output`. Le seuil d’admission par défaut est 0.1. Il s’applique au meilleur score
+de la requête ; les preuves complémentaires ne sont pas filtrées une à une.
+Le résultat final retient au maximum six pages PDF distinctes, avec le meilleur
+fragment de chaque page. Un folio retrouvé ne prouve pas à lui seul la
+complétude mécanique du fragment fourni.
 La première exécution peut télécharger les modèles ; aucune API de génération
 n'est appelée en mode retrieval. Les artefacts sont dans `.cache/evaluation/`
 et `reports/evaluation.json`, ignorés par Git.
@@ -59,4 +63,27 @@ métriques. Une mesure de qualité du retrieval exige les vrais modèles BGE sur
 le manuel, avec le rapport local correspondant.
 
 La [baseline du manuel de référence](baseline.md) documente la mesure réelle,
-ses entrées et la cible non atteinte.
+ses entrées et la cible alors non atteinte. La
+[correction du retrieval](retrieval-improvement.md) atteint 89,58 % sans
+modifier le jeu, avec calibration distincte et limites documentées.
+
+## Calibration distincte
+
+```bash
+HF_HOME=/tmp/rulelawyer-hf-cache uv run --extra index python eval/calibrate_retrieval.py
+```
+
+Le corpus CC0 `fixtures/retrieval-calibration.yaml` ne contient ni texte ni
+question du manuel. Le seuil est choisi parmi 1, 0,1, …, 0,000001 en maximisant l’exactitude
+équilibrée : moyenne du taux de preuves positives au-dessus du seuil et du
+taux de requêtes négatives en dessous. À égalité, le seuil le plus haut gagne.
+Les cas croisés n’exigent qu’une première preuve pour admettre la requête.
+Le reste du contexte demeure candidat, afin de ne pas rejeter les autres
+parties de la question sur leur score absolu. La calibration mesure
+uniquement l’admission, pas Recall@6 sur un livre réel.
+
+Avec BGE-reranker-v2-m3 : minimum positif 0,003246, seuil retenu 0,1,
+15/19 preuves positives au-dessus du seuil et 6/6 négatifs refusés, soit
+89,47 % d’exactitude équilibrée. Le candidat 0,001 admettrait 19/19 positifs
+mais ne refuserait que 4/6 négatifs (83,33 % équilibré). Le corpus minuscule n’est pas une validation du
+refus sur les ouvrages réels. Le rapport et les caches restent locaux.

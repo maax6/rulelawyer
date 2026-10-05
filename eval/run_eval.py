@@ -13,6 +13,7 @@ from rulelawyer.evaluation import evaluate, load_dataset
 from rulelawyer.ingest import ingest_route_a, write_chunks
 from rulelawyer.probe import probe
 from rulelawyer.retrieval import BGEModels, open_index
+from rulelawyer.retrieval_config import DEFAULT_THRESHOLD
 
 
 def main() -> int:
@@ -25,7 +26,7 @@ def main() -> int:
     parser.add_argument("--profiles-dir", type=Path, default=Path("profiles"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/evaluation"))
     parser.add_argument("--output", type=Path, default=Path("reports/evaluation.json"))
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument(
         "--generate",

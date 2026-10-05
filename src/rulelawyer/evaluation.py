@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from rulelawyer.answer import NOT_ESTABLISHED, NOT_FOUND
 from rulelawyer.ingest import ChunkPage
 from rulelawyer.retrieval import SearchHit
+from rulelawyer.retrieval_config import DEFAULT_THRESHOLD
 
 Category = Literal["factual", "procedural", "cross_section", "out_of_book", "ambiguous"]
 MINIMUM_CASES: dict[Category, int] = {
@@ -102,7 +103,7 @@ def load_dataset(path: Path) -> EvalDataset:
 
 class SearchIndex(Protocol):
     def search(
-        self, question: str, *, threshold: float = 0.5, top_k: int = 6
+        self, question: str, *, threshold: float = DEFAULT_THRESHOLD, top_k: int = 6
     ) -> list[SearchHit]: ...
 
 
@@ -158,7 +159,7 @@ def evaluate(
     questions: list[EvalQuestion],
     index: SearchIndex,
     *,
-    threshold: float = 0.5,
+    threshold: float = DEFAULT_THRESHOLD,
     generate: Callable[[str, ChunkPage | None], str] | None = None,
     progress: Callable[[int, int, str], None] | None = None,
 ) -> EvaluationReport:

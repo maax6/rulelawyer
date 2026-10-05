@@ -31,7 +31,7 @@ class SmallTestModels:
 
     def rerank(self, question: str, texts: list[str]) -> list[float]:
         return [
-            0.95 if "3 étincelles" in text and "dragon" not in question else 0.01
+            0.95 if "3 étincelles" in text and "dragon" not in question else 0.00001
             for text in texts
         ]
 
@@ -135,3 +135,30 @@ def test_ask_cli_from_pdf_to_cited_answer_and_refusal(
     assert "book_page=42" in missing_key.output
     assert "OPENROUTER_API_KEY absente" in missing_key.output
     assert len(calls) == 1
+
+
+def test_query_admission_keeps_complementary_pages_and_deduplicates_overlap(
+    tmp_path: Path,
+) -> None:
+    from hashlib import sha256
+
+    pdf = tmp_path / "demo.pdf"
+    make_demo_pdf(pdf)
+    chunks = ingest_route_a(pdf, probe(pdf))
+    bridge = chunks[1]
+    duplicate = bridge.model_copy(update={"id": sha256(b"overlap").hexdigest()})
+
+    class CompoundModels(SmallTestModels):
+        def rerank(self, question: str, texts: list[str]) -> list[float]:
+            return [0.95 if "3 étincelles" in t else 0.02 for t in texts]
+
+    with open_index(
+        [*chunks, duplicate], tmp_path / "qdrant", CompoundModels()
+    ) as index:
+        hits = index.search("Pont de brume et repos", threshold=0.5)
+        assert hits[0].page.book_page == 42
+        assert len(hits) == 4
+        assert len({h.page.pdf_page for h in hits}) == 4
+        assert any(h.page.book_page == 43 and h.score < 0.5 for h in hits)
+        assert index.search("Pont de brume", threshold=0.99) == []
+        assert len(index.search("Pont de brume", top_k=1)) == 1

@@ -18,6 +18,7 @@ import bm25s
 from qdrant_client import QdrantClient, models
 
 from rulelawyer.ingest import Chunk, ChunkPage
+from rulelawyer.retrieval_config import DEFAULT_THRESHOLD
 
 
 class RetrievalModels(Protocol):
@@ -184,7 +185,7 @@ class HybridIndex:
         self,
         question: str,
         *,
-        threshold: float = 0.5,
+        threshold: float = DEFAULT_THRESHOLD,
         top_k: int = 6,
     ) -> list[SearchHit]:
         if not question.strip():
@@ -216,20 +217,33 @@ class HybridIndex:
         for (key, page), score in zip(candidates, scores, strict=True):
             if not math.isfinite(score) or not 0 <= score <= 1:
                 raise ValueError("Le reranker a renvoyé un score invalide.")
-            if score >= threshold:
-                hits.append(
-                    SearchHit(
-                        self.by_id[key],
-                        page,
-                        score,
-                        fused[key],
-                        ranks[0].get(key),
-                        ranks[1].get(key),
-                    )
+            hits.append(
+                SearchHit(
+                    self.by_id[key],
+                    page,
+                    score,
+                    fused[key],
+                    ranks[0].get(key),
+                    ranks[1].get(key),
                 )
-        return sorted(hits, key=lambda hit: (hit.score, hit.rrf_score), reverse=True)[
-            :top_k
-        ]
+            )
+        ordered = sorted(hits, key=lambda hit: (hit.score, hit.rrf_score), reverse=True)
+        # Le seuil décide si la requête dispose d'une preuve candidate. Il ne
+        # supprime pas les preuves complémentaires d'une question composée,
+        # auxquelles le reranker attribue souvent un score absolu très faible.
+        if not ordered or ordered[0].score < threshold:
+            return []
+        selected: list[SearchHit] = []
+        seen: set[tuple[str, int]] = set()
+        for hit in ordered:
+            page_key = (hit.chunk.book_id, hit.page.pdf_page)
+            if page_key in seen:
+                continue
+            seen.add(page_key)
+            selected.append(hit)
+            if len(selected) == top_k:
+                break
+        return selected
 
 
 @contextmanager

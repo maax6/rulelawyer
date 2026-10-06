@@ -361,6 +361,31 @@ de Recall@6**, au-dessus de la cible de 85 %, avec les mêmes questions et
 chunks. Le refus du retrieval reste à 2/3 hors-livre ; la génération n’est
 pas validée sur ce jeu.
 
+## Pause et pistes
+
+Le projet est en pause, en attente de retours utilisateurs. Tant qu'il n'y en
+a pas, on manque d'informations pour arbitrer la suite.
+
+**Constat.** Avec les modèles locaux, obtenir de bons résultats est lent et
+difficile. Pour des réponses vraiment fiables, il faut aujourd'hui brancher
+des modèles frontières, ce qui n'est pas forcément l'objectif d'un outil censé
+tourner sur la machine du joueur. Une mesure réelle sur les 30 questions avec
+OpenRouter (`openai/gpt-4o-mini`, voie historique à un seul passage) le
+confirme : le retrieval tient (Recall@6 à 89,6 %, 3/3 refus corrects
+hors-livre), mais seulement 21 % de réponses justes et 29 % de citations
+exactes. Le goulot est la génération, pas la recherche.
+
+**Piste à tester : [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)
+(TypeSafe AI).** Jev ne génère pas de texte : il reçoit un état et des
+questions typées (choix, score, booléen) et rend des probabilités calibrées,
+en quelques centaines de millisecondes. Ce n'est donc pas un générateur de
+réponses, mais il pourrait prendre en charge les décisions où rulelawyer
+dépend aujourd'hui d'un LLM : répondre ou refuser, juger qu'un passage répond
+bien à la question, choisir parmi les passages retrouvés, détecter qu'une
+question est ambiguë. La réponse finale resterait extractive, citée depuis le
+passage choisi. À évaluer sur le même jeu de 30 questions avant toute
+intégration.
+
 ## État
 
 **Disponible aujourd'hui : `probe`, `ingest` Route A et `ask` sur PDF natif
